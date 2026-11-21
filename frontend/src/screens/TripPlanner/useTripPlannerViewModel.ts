@@ -3,7 +3,7 @@ import type { SheetSnap } from '../../components/BottomSheet';
 import { formatDuration, formatMiles } from '../../lib/format';
 import { ApiError, api, isAbortError } from '../../services/api';
 import type { GeocodeResult, Place, PlanRequest, Route } from '../../types/api';
-import { selectPlan, useTripStore } from '../../stores';
+import { selectPlan, selectSelectedRouteId, useTripStore } from '../../stores';
 import { usePlaceSearch } from './usePlaceSearch';
 import { useHistoryLayers, type HistoryLayers } from './useHistoryLayers';
 
@@ -51,6 +51,7 @@ function summarize(route: Route): RouteSummary {
 }
 
 const NO_ROUTES: Route[] = [];
+const NO_NOTICES: string[] = [];
 
 /** The trip in one line, for the entry that opens the form: "Chicago → Denver". */
 export interface TripLine {
@@ -99,11 +100,13 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
   const [sheetSnap, setSheetSnap] = useState<SheetSnap>('half');
 
   const plan = useTripStore(selectPlan);
+  const selectedRouteId = useTripStore(selectSelectedRouteId);
   // getState() returns a new object after every update, but the actions in it never change;
   // reading them once keeps every callback below stable.
   const store = useMemo(() => useTripStore.getState(), []);
 
   const routes = plan?.routes ?? NO_ROUTES;
+  const notices = plan?.notices ?? NO_NOTICES;
 
   useEffect(() => () => requestRef.current?.abort(), []);
 
@@ -203,6 +206,8 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
 
   const summaries = useMemo(() => routes.map(summarize), [routes]);
 
+  const selectRoute = useCallback((id: string) => store.selectRoute(id), [store]);
+
   const status: PlanStatus = planning ? 'loading' : error ? 'error' : routes.length > 0 ? 'ready' : 'idle';
   /** Anything past the empty start: a plan, its loading or its failure. */
   const hasResults = status !== 'idle';
@@ -266,9 +271,12 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
     error,
     routes,
     summaries,
-    /** The route's card, for the collapsed sheet. */
-    summary: summaries[0] ?? null,
+    /** The selected route's card, for the collapsed sheet. */
+    selectedSummary: summaries.find((route) => route.id === selectedRouteId) ?? null,
     routesHeading: summaries.length === 1 ? '1 route' : `${summaries.length} routes`,
+    notices,
+    selectedRouteId,
+    selectRoute,
     submit,
     status,
     hasResults,

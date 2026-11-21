@@ -3,6 +3,7 @@ import { readMapPalette } from './mapPalette';
 
 const DARK = {
   '--bg': '#071a21',
+  '--ink-faint': '#62808c',
   '--accent': '#5b8cff',
 };
 const LIGHT = { ...DARK, '--bg': '#f3f6f7', '--accent': '#1f5bd8' };
@@ -23,7 +24,8 @@ describe('readMapPalette', () => {
     const palette = readMapPalette(themed(DARK));
     expect(palette).toEqual({
       casing: '#071a21',
-      route: '#5b8cff',
+      alternative: '#62808c',
+      selected: '#5b8cff',
     });
   });
 
@@ -31,13 +33,13 @@ describe('readMapPalette', () => {
     const dark = readMapPalette(themed(DARK));
     const light = readMapPalette(themed(LIGHT));
     expect(light.casing).toBe('#f3f6f7');
-    expect(light.route).toBe('#1f5bd8');
+    expect(light.selected).toBe('#1f5bd8');
     expect(light.casing).not.toBe(dark.casing);
   });
 
   it('falls back to a neutral colour when a token is missing', () => {
     const palette = readMapPalette(themed({}));
-    expect(palette.route).toBe('gray');
+    expect(palette.selected).toBe('gray');
     expect(palette.casing).toBe('gray');
   });
 });

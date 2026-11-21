@@ -9,6 +9,9 @@ export function resultsProps(vm: TripPlannerViewModel): ResultsContentProps {
     onRetry: vm.retry,
     onDismissError: vm.dismissError,
     heading: vm.routesHeading,
+    notices: vm.notices,
     routes: vm.summaries,
+    selectedRouteId: vm.selectedRouteId,
+    onSelectRoute: vm.selectRoute,
   };
 }

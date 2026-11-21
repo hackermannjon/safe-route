@@ -7,10 +7,12 @@ import type { Route } from '../../types/api';
 import { fitPadding, type MapPadding, type MapTheme } from './camera';
 import { readMapPalette, type MapPalette } from './mapPalette';
 import styles from './MapView.module.css';
-import { installRouteLayers, routesBounds, setRouteData } from './routes';
+import { ROUTE_LAYER, installRouteLayers, pickRoute, routesBounds, setRouteData, setRouteSelection } from './routes';
 
 export interface MapViewProps {
   routes: readonly Route[];
+  selectedRouteId: string | null;
+  onSelectRoute?: (id: string) => void;
   /** Screen space covered by UI floating over the map; routes and controls keep clear of it. */
   padding?: MapPadding;
   theme?: MapTheme;
@@ -45,7 +47,7 @@ function supportsWebGL(): boolean {
   }
 }
 
-/** Frames the plan in the free area. */
+/** Frames every route in the free area, so the alternatives are visible next to the one selected. */
 function fitRoutes(map: MapLibreMap, routes: readonly Route[], padding: MapPadding, animate: boolean): void {
   const bounds = routesBounds(routes);
   if (!bounds) return;
@@ -63,16 +65,25 @@ function installLayers(map: MapLibreMap, palette: MapPalette): void {
   installRouteLayers(map, palette, firstLabel);
 }
 
-export function MapView({ routes, padding = NO_PADDING, theme = 'dark', zoomControls = true }: MapViewProps) {
+export function MapView({
+  routes,
+  selectedRouteId,
+  onSelectRoute,
+  padding = NO_PADDING,
+  theme = 'dark',
+  zoomControls = true,
+}: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   /** Bumped each time a basemap finishes loading, so every layer's data is pushed again. */
   const [styleVersion, setStyleVersion] = useState(0);
   const loaded = styleVersion > 0;
   const reducedMotion = useReducedMotion();
-  // Read by effects that need the latest props without re-running when they change.
+  // Read from map event handlers, which are bound once and must see the latest props.
   const latest = useRef({
     routes,
+    selectedRouteId,
+    onSelectRoute,
     reducedMotion,
     padding,
   });
@@ -81,6 +92,8 @@ export function MapView({ routes, padding = NO_PADDING, theme = 'dark', zoomCont
   useEffect(() => {
     latest.current = {
       routes,
+      selectedRouteId,
+      onSelectRoute,
       reducedMotion,
       padding,
     };
@@ -103,6 +116,17 @@ export function MapView({ routes, padding = NO_PADDING, theme = 'dark', zoomCont
       const palette = readMapPalette();
       installLayers(map, palette);
       setStyleVersion((v) => v + 1);
+    });
+    map.on('click', (event) => {
+      const { selectedRouteId: current, onSelectRoute: select } = latest.current;
+      const id = pickRoute(map, event.point, current);
+      if (id && id !== current) select?.(id);
+    });
+    map.on('mouseenter', ROUTE_LAYER.hit, () => {
+      map.getCanvas().style.cursor = 'pointer';
+    });
+    map.on('mouseleave', ROUTE_LAYER.hit, () => {
+      map.getCanvas().style.cursor = '';
     });
     mapRef.current = map;
     return () => {
@@ -137,6 +161,7 @@ export function MapView({ routes, padding = NO_PADDING, theme = 'dark', zoomCont
     if (map && styleVersion) setRouteData(map, routes);
   }, [routes, styleVersion]);
 
+  // A new plan is a new array; picking another route keeps it, so the camera stays put.
   useEffect(() => {
     const map = mapRef.current;
     if (map && loaded) fitRoutes(map, routes, latest.current.padding, !latest.current.reducedMotion);
@@ -155,6 +180,11 @@ export function MapView({ routes, padding = NO_PADDING, theme = 'dark', zoomCont
     const { routes: current, reducedMotion: still } = latest.current;
     fitRoutes(map, current, { top: padTop, right: padRight, bottom: padBottom, left: padLeft }, !still);
   }, [padTop, padRight, padBottom, padLeft, loaded]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map && styleVersion) setRouteSelection(map, selectedRouteId);
+  }, [selectedRouteId, styleVersion]);
 
   const insets = {
     '--map-inset-top': `${padTop}px`,

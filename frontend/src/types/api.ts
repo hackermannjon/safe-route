@@ -14,7 +14,7 @@ export interface PlanRequest {
 }
 
 export interface Route {
-  /** "A" for the plan's one route. */
+  /** "A", "B", "C", fastest first. */
   id: string;
   label: string;
   /** Main roads in driving order, e.g. ["I-88", "I-80", "I-76"]. */
@@ -25,8 +25,10 @@ export interface Route {
 }
 
 export interface PlanResponse {
-  /** The fastest truck route, as a one-item list. */
+  /** Up to three distinct routes. */
   routes: Route[];
+  /** Plain-language caveats about the plan, e.g. when fewer than three routes exist. */
+  notices: string[];
 }
 
 export interface ApiError {

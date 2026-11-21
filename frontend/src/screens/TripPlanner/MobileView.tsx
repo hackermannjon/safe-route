@@ -41,7 +41,14 @@ export function MobileView({ vm, theme, onToggleTheme }: ViewProps) {
       {/* The form is modal; inert keeps Tab and screen readers out of what is behind it. */}
       <div className={styles.stage} inert={vm.formOpen}>
         <main className={styles.map}>
-          <LazyMapView routes={vm.routes} padding={padding} theme={theme} zoomControls={false} />
+          <LazyMapView
+            routes={vm.routes}
+            selectedRouteId={vm.selectedRouteId}
+            onSelectRoute={vm.selectRoute}
+            padding={padding}
+            theme={theme}
+            zoomControls={false}
+          />
         </main>
 
         <header ref={setTop} className={styles.top}>
@@ -68,7 +75,7 @@ export function MobileView({ vm, theme, onToggleTheme }: ViewProps) {
             label="Trip results"
             snap={vm.sheetSnap}
             onSnapChange={vm.setSheetSnap}
-            header={<PeekHeader status={vm.status} error={vm.error} route={vm.summary} />}
+            header={<PeekHeader status={vm.status} error={vm.error} route={vm.selectedSummary} />}
           >
             {/* The peek header already carries the status line. */}
             <ResultsContent {...resultsProps(vm)} statusInHeader />

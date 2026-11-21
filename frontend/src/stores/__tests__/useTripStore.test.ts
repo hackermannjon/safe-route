@@ -12,16 +12,31 @@ const route = (id: string): Route => ({
 });
 
 const PLAN: PlanResponse = {
-  routes: [route('A')],
+  notices: [],
+  routes: [route('A'), route('B')],
 };
 
 const store = () => useTripStore.getState();
 
 describe('useTripStore', () => {
-  it('holds the plan until it is cleared', () => {
+  it('selects the first route when a plan arrives', () => {
     store().setPlan(PLAN);
     expect(selectPlan(store())).toBe(PLAN);
+    expect(store().selectedRouteId).toBe('A');
+  });
+
+  it('only selects routes that exist on the plan', () => {
+    store().setPlan(PLAN);
+    store().selectRoute('Z');
+    expect(store().selectedRouteId).toBe('A');
+    store().selectRoute('B');
+    expect(store().selectedRouteId).toBe('B');
+  });
+
+  it('clears the selection with the plan', () => {
+    store().setPlan(PLAN);
     store().clearPlan();
     expect(store().plan).toBeNull();
+    expect(store().selectedRouteId).toBeNull();
   });
 });

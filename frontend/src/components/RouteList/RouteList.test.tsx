@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { RouteList, type RouteListItem } from './RouteList';
 
 const ROUTES: RouteListItem[] = [
@@ -21,14 +21,28 @@ const ROUTES: RouteListItem[] = [
 
 describe('RouteList', () => {
   it('shows each route with its figures', () => {
-    render(<RouteList routes={ROUTES} />);
+    render(<RouteList routes={ROUTES} selectedId="A" onSelect={() => {}} />);
 
-    const [first, second] = screen.getAllByRole('listitem');
-    expect(first).toHaveTextContent('Route A');
+    const first = screen.getByRole('button', { name: /^Route A/ });
     expect(first).toHaveTextContent('1,016 mi');
     expect(first).toHaveTextContent('15 h 41 min');
     expect(first).toHaveTextContent('via I-88, I-80, I-76');
-    expect(second).toHaveTextContent('Route B');
-    expect(second).not.toHaveTextContent('via');
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+  });
+
+  it('marks only the selected route as pressed', () => {
+    render(<RouteList routes={ROUTES} selectedId="B" onSelect={() => {}} />);
+
+    expect(screen.getByRole('button', { name: /^Route A/ })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: /^Route B/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('reports the clicked route', () => {
+    const onSelect = vi.fn();
+    render(<RouteList routes={ROUTES} selectedId="A" onSelect={onSelect} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /^Route B/ }));
+
+    expect(onSelect).toHaveBeenCalledWith('B');
   });
 });

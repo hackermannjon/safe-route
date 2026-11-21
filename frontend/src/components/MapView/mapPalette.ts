@@ -5,8 +5,10 @@
 export interface MapPalette {
   /** Outline around route lines and dots, so they read on the basemap: the page background. */
   casing: string;
-  /** The route line. */
-  route: string;
+  /** Routes that are not selected. */
+  alternative: string;
+  /** The selected route. */
+  selected: string;
 }
 
 /** Only when a token is missing (a test without the stylesheet): visible on either basemap. */
@@ -17,6 +19,7 @@ export function readMapPalette(element: Element = document.documentElement): Map
   const read = (token: string) => style.getPropertyValue(token).trim() || MISSING;
   return {
     casing: read('--bg'),
-    route: read('--accent'),
+    alternative: read('--ink-faint'),
+    selected: read('--accent'),
   };
 }

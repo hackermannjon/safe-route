@@ -71,7 +71,12 @@ export function DesktopView({ vm, theme, onToggleTheme }: ViewProps) {
       </aside>
 
       <main className={styles.map}>
-        <LazyMapView routes={vm.routes} theme={theme} />
+        <LazyMapView
+          routes={vm.routes}
+          selectedRouteId={vm.selectedRouteId}
+          onSelectRoute={vm.selectRoute}
+          theme={theme}
+        />
       </main>
     </div>
   );

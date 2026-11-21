@@ -15,8 +15,8 @@ export function TripForm({ vm, onCancel }: TripFormProps) {
       <PlaceField label="From" placeholder="City or address" {...vm.origin} />
       <PlaceField label="To" placeholder="City or address" {...vm.destination} />
       <div className={styles.actions}>
-        <Button type="submit" block loading={vm.planning} loadingLabel="Finding route">
-          Find route
+        <Button type="submit" block loading={vm.planning} loadingLabel="Finding routes">
+          Find routes
         </Button>
         {onCancel && (
           <Button variant="ghost" block onClick={onCancel}>

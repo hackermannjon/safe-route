@@ -26,7 +26,12 @@ function route(id: string, distance_mi: number, duration_s: number, via: string[
 }
 
 const PLAN: PlanResponse = {
-  routes: [route('A', 1016.6, 56739, ['I-88', 'I-80', 'I-76'])],
+  notices: [],
+  routes: [
+    route('A', 1016.6, 56739, ['I-88', 'I-80', 'I-76']),
+    route('B', 1058.8, 59760, ['US-20', 'I-80', 'I-76']),
+    route('C', 1116.3, 62640, []),
+  ],
 };
 
 function pickBoth(result: { current: ReturnType<typeof useTripPlannerViewModel> }) {
@@ -51,7 +56,7 @@ describe('useTripPlannerViewModel', () => {
     expect(result.current.destination.error).toBe('Pick a destination from the list.');
   });
 
-  it('plans with the picked places and summarises the route', async () => {
+  it('plans with the picked places and lists every route', async () => {
     const plan = vi.spyOn(api, 'plan').mockResolvedValue(PLAN);
     const { result } = renderHook(() => useTripPlannerViewModel());
     pickBoth(result);
@@ -66,7 +71,7 @@ describe('useTripPlannerViewModel', () => {
       expect.any(AbortSignal),
     );
     expect(result.current.routes).toBe(PLAN.routes);
-    expect(result.current.routesHeading).toBe('1 route');
+    expect(result.current.routesHeading).toBe('3 routes');
     expect(result.current.summaries[0]).toEqual({
       id: 'A',
       label: 'Route A',
@@ -74,17 +79,52 @@ describe('useTripPlannerViewModel', () => {
       duration: '15 h 45 min',
       via: 'via I-88, I-80, I-76',
     });
+    expect(result.current.summaries[2].via).toBe('');
+    expect(result.current.notices).toEqual([]);
     expect(result.current.planning).toBe(false);
   });
 
-  it('leaves via empty when no main road is known', async () => {
-    vi.spyOn(api, 'plan').mockResolvedValue({ routes: [route('A', 12.4, 1500, [])] });
+  it('selects the first route by default and switches on request', async () => {
+    vi.spyOn(api, 'plan').mockResolvedValue(PLAN);
     const { result } = renderHook(() => useTripPlannerViewModel());
     pickBoth(result);
+    await act(() => result.current.submit());
+    expect(result.current.selectedRouteId).toBe('A');
 
+    act(() => result.current.selectRoute('C'));
+    expect(result.current.selectedRouteId).toBe('C');
+
+    // Picking a route must not hand the map a new route list, or it would re-frame the camera.
+    const routes = result.current.routes;
+    act(() => result.current.selectRoute('B'));
+    expect(result.current.routes).toBe(routes);
+  });
+
+  it('ignores ids that are not in the current plan', async () => {
+    vi.spyOn(api, 'plan').mockResolvedValue(PLAN);
+    const { result } = renderHook(() => useTripPlannerViewModel());
+    pickBoth(result);
     await act(() => result.current.submit());
 
-    expect(result.current.summaries[0].via).toBe('');
+    act(() => result.current.selectRoute('Z'));
+
+    expect(result.current.selectedRouteId).toBe('A');
+  });
+
+  it('resets the selection and passes notices on a new plan', async () => {
+    const plan = vi.spyOn(api, 'plan').mockResolvedValue(PLAN);
+    const { result } = renderHook(() => useTripPlannerViewModel());
+    pickBoth(result);
+    await act(() => result.current.submit());
+    act(() => result.current.selectRoute('B'));
+
+    const notice = 'Only one route was available for this trip.';
+    plan.mockResolvedValue({ ...PLAN, notices: [notice], routes: [route('A', 900, 50000, ['I-80'])] });
+    await act(() => result.current.submit());
+
+    expect(result.current.selectedRouteId).toBe('A');
+    expect(result.current.notices).toEqual([notice]);
+    expect(result.current.routesHeading).toBe('1 route');
   });
 
   it('drops the pick when the text is edited afterwards', () => {
@@ -117,7 +157,7 @@ describe('useTripPlannerViewModel', () => {
 
     await waitFor(() => expect(result.current.error).toBe('The routing service did not respond.'));
     expect(result.current.routes).toEqual([]);
-    expect(result.current.summary).toBeNull();
+    expect(result.current.selectedRouteId).toBeNull();
   });
 
   it('puts a server error on origin.lat next to its field', async () => {
@@ -160,7 +200,7 @@ describe('useTripPlannerViewModel layout', () => {
     expect(result.current.status).toBe('ready');
     expect(result.current.formExpanded).toBe(false);
     expect(result.current.tripLine).toEqual({ route: 'Chicago → Denver' });
-    expect(result.current.summary?.id).toBe('A');
+    expect(result.current.selectedSummary?.id).toBe('A');
   });
 
   it('sends the same request again on retry', async () => {

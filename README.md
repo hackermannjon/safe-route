@@ -1,7 +1,7 @@
 # Safe Route
 
 Route planning for truck drivers. Enter an origin and a destination.
-Safe Route returns the fastest truck route with its distance, driving time and main roads.
+Safe Route returns up to three truck routes.
 
 ## Run locally
 
