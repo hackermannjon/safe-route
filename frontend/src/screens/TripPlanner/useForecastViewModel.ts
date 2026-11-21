@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { dayMarks, nightSpans } from '../../lib/forecastMarks';
 import { formatEta, formatMilepost } from '../../lib/format';
 import { HEATMAP_METRICS, MAX_FORECAST_HOUR, METRIC_LABEL } from '../../lib/heatmap';
 import { buildTrack, truckAt, type TruckPosition } from '../../lib/truck';
@@ -53,6 +54,19 @@ export function useForecastViewModel() {
   const truck = useMemo(() => (heatmapOn && track ? truckAt(track, atMs) : null), [heatmapOn, track, atMs]);
   const forecastTime = Number.isFinite(atMs) ? formatEta(new Date(atMs).toISOString()) : '—';
   const arrivalHour = track && Number.isFinite(departMs) ? (track.arriveMs - departMs) / HOUR_MS : null;
+  const departure = plan?.departure ?? '';
+  const days = useMemo(() => dayMarks(Date.parse(departure), MAX_FORECAST_HOUR), [departure]);
+  // Dark where the truck is at each time, so the bands match what the driver will see.
+  const nights = useMemo(
+    () =>
+      track
+        ? nightSpans(Date.parse(departure), MAX_FORECAST_HOUR, (ms) => {
+            const at = truckAt(track, ms);
+            return [at.lat, at.lon];
+          })
+        : [],
+    [track, departure],
+  );
   const mapHeatmap = useMemo(
     () => (heatmapOn && heatmapData ? { data: heatmapData, hour, metric, playing } : null),
     [heatmapOn, heatmapData, hour, metric, playing],
@@ -71,6 +85,8 @@ export function useForecastViewModel() {
       onChange: setHour,
       time: forecastTime,
       offset: `+${hour} h`,
+      days,
+      nights,
       status: truck ? (truck.arrived ? 'Arrived' : formatMilepost(truck.mile)) : undefined,
       arrived: truck?.arrived ?? false,
       valueText: forecastValueText(forecastTime, hour, truck),

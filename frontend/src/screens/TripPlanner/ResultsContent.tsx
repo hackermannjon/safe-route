@@ -19,6 +19,7 @@ export interface ResultsContentProps {
   routes: RouteListItem[];
   selectedRouteId: string | null;
   onSelectRoute: (id: string) => void;
+  onPreviewRoute?: (id: string | null) => void;
   timeline: readonly TimelineItem[];
   selectedCheckpoint: number | null;
   onSelectCheckpoint: (index: number) => void;
@@ -44,6 +45,7 @@ export const ResultsContent = memo(function ResultsContent({
   routes,
   selectedRouteId,
   onSelectRoute,
+  onPreviewRoute,
   timeline,
   selectedCheckpoint,
   onSelectCheckpoint,
@@ -85,7 +87,7 @@ export const ResultsContent = memo(function ResultsContent({
         <h2 id="routes-heading" className={styles.heading}>
           {heading}
         </h2>
-        <RouteList routes={routes} selectedId={selectedRouteId} onSelect={onSelectRoute} />
+        <RouteList routes={routes} selectedId={selectedRouteId} onSelect={onSelectRoute} onPreview={onPreviewRoute} />
       </section>
       {selected && (
         <section className={styles.routes} aria-labelledby="checkpoints-heading">

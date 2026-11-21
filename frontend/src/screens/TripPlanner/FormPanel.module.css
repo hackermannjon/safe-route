@@ -37,6 +37,18 @@
     calc(var(--safe-left) + var(--space-4));
 }
 
+/* Mirrored by FORM_EXIT_MS. */
+.panel[data-leaving] {
+  animation: leave 220ms var(--ease-standard) both;
+}
+
+@keyframes leave {
+  to {
+    transform: translate3d(0, 24px, 0);
+    opacity: 0;
+  }
+}
+
 @keyframes rise {
   from {
     transform: translate3d(0, 24px, 0);

@@ -5,8 +5,9 @@ import { RiskLegend } from '../../components/RiskLegend';
 import { ThemeToggle } from '../../components/ThemeToggle';
 import { TripPill } from '../../components/TripPill';
 import { useCoverage } from '../../hooks/useCoverage';
+import { usePresence } from '../../hooks/usePresence';
 import { EMPTY_STATE } from './copy';
-import { ForecastPanel, WeatherToggle } from './ForecastPanel';
+import { FORECAST_EXIT_MS, ForecastPanel, WeatherToggle } from './ForecastPanel';
 import { TripMap } from './TripMap';
 import { ResultsContent } from './ResultsContent';
 import { resultsProps } from './resultsProps';
@@ -31,6 +32,7 @@ export function DesktopView({ vm, theme, onToggleTheme }: ViewProps) {
   const [forecast, setForecast] = useState<HTMLElement | null>(null);
   const forecastCoverage = useCoverage(forecast, 'bottom', 200);
   const heatmapOn = vm.heatmap.status !== 'off';
+  const forecastPanel = usePresence(heatmapOn, FORECAST_EXIT_MS);
   const bottom = heatmapOn ? forecastCoverage : vm.showLegend ? LEGEND_CLEARANCE : 0;
   const top = vm.heatmap.available ? TOGGLE_CLEARANCE : 0;
   const padding = useMemo<MapPadding>(() => ({ top, right: 0, bottom, left: 0 }), [top, bottom]);
@@ -93,6 +95,7 @@ export function DesktopView({ vm, theme, onToggleTheme }: ViewProps) {
           routes={vm.routes}
           selectedRouteId={vm.selectedRouteId}
           onSelectRoute={vm.selectRoute}
+          previewRouteId={vm.previewRouteId}
           checkpoints={vm.checkpoints}
           selectedCheckpoint={vm.selectedCheckpoint}
           onSelectCheckpoint={vm.selectCheckpoint}
@@ -101,8 +104,15 @@ export function DesktopView({ vm, theme, onToggleTheme }: ViewProps) {
           theme={theme}
         />
         {vm.heatmap.available && <WeatherToggle heatmap={vm.heatmap} className={styles.toggle} />}
-        {vm.showLegend && !heatmapOn && <RiskLegend compact className={styles.legend} />}
-        {heatmapOn && <ForecastPanel ref={setForecast} heatmap={vm.heatmap} className={styles.forecast} />}
+        {vm.showLegend && !forecastPanel.mounted && <RiskLegend compact className={styles.legend} />}
+        {forecastPanel.mounted && (
+          <ForecastPanel
+            ref={setForecast}
+            heatmap={vm.heatmap}
+            className={styles.forecast}
+            leaving={forecastPanel.leaving}
+          />
+        )}
       </main>
     </div>
   );

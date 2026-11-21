@@ -66,6 +66,19 @@ describe('RouteList', () => {
     expect(onSelect).toHaveBeenCalledWith('B');
   });
 
+  it('previews a card pointed at with a mouse, but not one touched', () => {
+    const onPreview = vi.fn();
+    render(<RouteList routes={ROUTES} selectedId="A" onSelect={() => {}} onPreview={onPreview} />);
+    const card = screen.getByRole('button', { name: /^Route B/ });
+
+    fireEvent.pointerEnter(card, { pointerType: 'touch' });
+    expect(onPreview).not.toHaveBeenCalled();
+    fireEvent.pointerEnter(card, { pointerType: 'mouse' });
+    expect(onPreview).toHaveBeenLastCalledWith('B');
+    fireEvent.pointerLeave(card, { pointerType: 'mouse' });
+    expect(onPreview).toHaveBeenLastCalledWith(null);
+  });
+
   it('keeps the order it is given', () => {
     render(<RouteList routes={[ROUTES[1], ROUTES[0]]} selectedId="A" onSelect={() => {}} />);
 

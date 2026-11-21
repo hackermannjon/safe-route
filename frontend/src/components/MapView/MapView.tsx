@@ -24,9 +24,11 @@ import {
   ROUTE_LAYER,
   installRouteLayers,
   pickRoute,
+  revealSelection,
   routesBounds,
   setRiskSegments,
   setRouteData,
+  setRoutePreview,
   setRouteSelection,
 } from './routes';
 
@@ -34,6 +36,8 @@ export interface MapViewProps {
   routes: readonly Route[];
   selectedRouteId: string | null;
   onSelectRoute?: (id: string) => void;
+  /** A route the driver points at in the list; it stands out until the pointer leaves. */
+  previewRouteId?: string | null;
   /** The selected route's checkpoints; other routes show none. */
   checkpoints?: readonly Checkpoint[];
   /** Shown with its details in a popup next to its dot. */
@@ -48,6 +52,11 @@ export interface MapViewProps {
   /** Screen space covered by UI floating over the map; routes, popups and controls keep clear of it. */
   padding?: MapPadding;
   theme?: MapTheme;
+  /**
+   * How the camera moves when `padding` changes, so it can travel with the panel that changed it
+   * instead of trailing behind.
+   */
+  paddingMotion?: CameraMotion;
   /** Phones pinch to zoom, so the buttons only take room there. */
   zoomControls?: boolean;
   /** Off when the screen closes its overlays with Escape itself, in its own order. */
@@ -55,6 +64,11 @@ export interface MapViewProps {
 }
 
 export type { MapPadding, MapTheme };
+
+export interface CameraMotion {
+  durationMs: number;
+  easing?: (progress: number) => number;
+}
 
 export interface MapHeatmap {
   data: HeatmapData;
@@ -73,6 +87,7 @@ export const CHECKPOINT_ZOOM = 9;
 /** Playback follows the truck at about 150 miles across a phone, close enough to read the roads. */
 export const FOLLOW_ZOOM = 8;
 const EASE_MS = 600;
+const REVEAL_MS = 360;
 /** Clears the dot and its focus ring. */
 const POPUP_OFFSET_PX = 14;
 
@@ -82,6 +97,7 @@ const BASEMAP_STYLE: Record<MapTheme, string> = {
   light: 'https://tiles.openfreemap.org/styles/positron',
 };
 const NO_PADDING: MapPadding = { top: 0, right: 0, bottom: 0, left: 0 };
+const FIT_MOTION: CameraMotion = { durationMs: 800 };
 
 /** Lower 48, the opening view before a trip is planned. */
 const INITIAL_BOUNDS: [[number, number], [number, number]] = [
@@ -133,14 +149,16 @@ function TruckIcon({ arrived }: { arrived: boolean }) {
 }
 
 /** Frames every route in the free area, so the alternatives are visible next to the one selected. */
-function fitRoutes(map: MapLibreMap, routes: readonly Route[], padding: MapPadding, animate: boolean): void {
+function fitRoutes(map: MapLibreMap, routes: readonly Route[], padding: MapPadding, motion: CameraMotion | null): void {
   const bounds = routesBounds(routes);
   if (!bounds) return;
   const { clientWidth, clientHeight } = map.getContainer();
   map.fitBounds(bounds, {
     padding: fitPadding(padding, clientWidth, clientHeight),
     maxZoom: 11,
-    duration: animate ? 800 : 0,
+    duration: motion?.durationMs ?? 0,
+    // MapLibre copies every given key over its defaults, so an undefined easing would erase its own.
+    ...(motion?.easing && { easing: motion.easing }),
   });
 }
 
@@ -157,6 +175,7 @@ export function MapView({
   routes,
   selectedRouteId,
   onSelectRoute,
+  previewRouteId = null,
   checkpoints = NO_CHECKPOINTS,
   selectedCheckpoint = null,
   onSelectCheckpoint,
@@ -164,6 +183,7 @@ export function MapView({
   heatmap = null,
   truck = null,
   padding = NO_PADDING,
+  paddingMotion = FIT_MOTION,
   theme = 'dark',
   zoomControls = true,
   escapeCloses = true,
@@ -184,6 +204,7 @@ export function MapView({
     reducedMotion,
     heatmap,
     padding,
+    paddingMotion,
     truck,
   });
   const [webgl] = useState(supportsWebGL);
@@ -198,6 +219,7 @@ export function MapView({
       reducedMotion,
       heatmap,
       padding,
+      paddingMotion,
       truck,
     };
   });
@@ -211,6 +233,9 @@ export function MapView({
     return node;
   });
   const truckRef = useRef<Marker | null>(null);
+  const mapHoverRef = useRef<string | null>(null);
+  const previewRef = useRef(previewRouteId);
+  const shownRouteRef = useRef<string | null>(null);
   const glideRef = useRef<number | null>(null);
   // Set when playback starts; the driver panning or zooming the map hands the camera back.
   const followRef = useRef(false);
@@ -271,6 +296,17 @@ export function MapView({
         map.getCanvas().style.cursor = '';
       });
     }
+    // Pointing at an alternative on the map previews it the same way pointing at its card does.
+    map.on('mousemove', ROUTE_LAYER.hit, (event) => {
+      const id = pickRoute(map, event.point, latest.current.selectedRouteId);
+      if (id === mapHoverRef.current) return;
+      mapHoverRef.current = id;
+      setRoutePreview(map, id ?? previewRef.current, latest.current.selectedRouteId);
+    });
+    map.on('mouseleave', ROUTE_LAYER.hit, () => {
+      mapHoverRef.current = null;
+      setRoutePreview(map, previewRef.current, latest.current.selectedRouteId);
+    });
     truckRef.current = new Marker({ element: truckNode, anchor: 'center' });
     mapRef.current = map;
     return () => {
@@ -406,7 +442,7 @@ export function MapView({
   // A new plan is a new array; picking another route keeps it, so the camera stays put.
   useEffect(() => {
     const map = mapRef.current;
-    if (map && loaded) fitRoutes(map, routes, latest.current.padding, !latest.current.reducedMotion);
+    if (map && loaded) fitRoutes(map, routes, latest.current.padding, latest.current.reducedMotion ? null : FIT_MOTION);
   }, [routes, loaded]);
 
   // The sheet moving or a panel opening changes the free area; keep the trip in it, unless a
@@ -421,14 +457,19 @@ export function MapView({
       return;
     }
     if (popupRef.current?.isOpen()) return;
-    const { routes: current, reducedMotion: still } = latest.current;
+    const { routes: current, reducedMotion: still, paddingMotion: motion } = latest.current;
     const pad = { top: padTop, right: padRight, bottom: padBottom, left: padLeft };
     const marker = truckRef.current;
     if (followRef.current && marker?.getElement().isConnected) {
-      map.easeTo({ center: marker.getLngLat(), offset: freeCentreOffset(pad), duration: still ? 0 : EASE_MS });
+      map.easeTo({
+        center: marker.getLngLat(),
+        offset: freeCentreOffset(pad),
+        duration: still ? 0 : motion.durationMs,
+        ...(motion.easing && { easing: motion.easing }),
+      });
       return;
     }
-    fitRoutes(map, current, pad, !still);
+    fitRoutes(map, current, pad, still ? null : motion);
   }, [padTop, padRight, padBottom, padLeft, loaded]);
 
   useEffect(() => {
@@ -439,7 +480,19 @@ export function MapView({
       map,
       routes.find((route) => route.id === selectedRouteId),
     );
+    // Only a switch between routes of one plan grows in; a new plan or a basemap swap just appears.
+    const switched = shownRouteRef.current !== null && shownRouteRef.current !== selectedRouteId;
+    if (switched && routes.some((route) => route.id === shownRouteRef.current) && !latest.current.reducedMotion) {
+      revealSelection(map, REVEAL_MS);
+    }
+    shownRouteRef.current = selectedRouteId;
   }, [routes, selectedRouteId, styleVersion]);
+
+  useEffect(() => {
+    previewRef.current = previewRouteId;
+    const map = mapRef.current;
+    if (map && styleVersion) setRoutePreview(map, mapHoverRef.current ?? previewRouteId, selectedRouteId);
+  }, [previewRouteId, selectedRouteId, styleVersion]);
 
   useEffect(() => {
     const map = mapRef.current;

@@ -445,6 +445,7 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
   const timeline = useMemo(() => timelineItems(checkpoints), [checkpoints]);
 
   const selectRoute = useCallback((id: string) => store.selectRoute(id), [store]);
+  const [previewId, previewRoute] = useState<string | null>(null);
   const selectCheckpoint = useCallback(
     (index: number) => {
       if (!checkpoints.some((cp) => cp.index === index)) return;
@@ -597,6 +598,9 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
     showLegend: routes.length > 0,
     selectedRouteId,
     selectRoute,
+    /** A route card pointed at, drawn out on the map; never one the plan does not have. */
+    previewRouteId: routes.some((route) => route.id === previewId) ? previewId : null,
+    previewRoute,
     /** The selected route's checkpoints, for the map. */
     checkpoints,
     timeline,

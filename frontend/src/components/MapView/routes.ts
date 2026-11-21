@@ -12,6 +12,8 @@ const RISK_SOURCE = 'route-risk';
 export const ROUTE_LAYER = {
   altCasing: 'route-alt-casing',
   alt: 'route-alt',
+  previewCasing: 'route-preview-casing',
+  preview: 'route-preview',
   selectedCasing: 'route-selected-casing',
   risk: 'route-risk',
   hit: 'route-hit',
@@ -77,6 +79,10 @@ export function installRouteLayers(map: MapLibreMap, palette: MapPalette, before
 
   line(ROUTE_LAYER.altCasing, { 'line-color': palette.casing, 'line-width': 6 });
   line(ROUTE_LAYER.alt, { 'line-color': palette.alternative, 'line-width': 3.5 });
+  // A route the driver points at, in the list or on the map, stands out from the other alternatives
+  // before it is picked.
+  line(ROUTE_LAYER.previewCasing, { 'line-color': palette.casing, 'line-width': 8 });
+  line(ROUTE_LAYER.preview, { 'line-color': palette.focus, 'line-width': 4.5, 'line-opacity': 0.85 });
   line(ROUTE_LAYER.selectedCasing, { 'line-color': palette.casing, 'line-width': 9 });
   // The casing shows the whole selected route; the risk colours are drawn in it, stretch by stretch.
   map.addLayer(
@@ -108,6 +114,39 @@ export function setRouteSelection(map: MapLibreMap, selectedRouteId: string | nu
   map.setFilter(ROUTE_LAYER.altCasing, others);
   map.setFilter(ROUTE_LAYER.alt, others);
   map.setFilter(ROUTE_LAYER.selectedCasing, selected);
+}
+
+export function setRoutePreview(map: MapLibreMap, previewId: string | null, selectedRouteId: string | null): void {
+  if (!map.getLayer(ROUTE_LAYER.preview)) return;
+  const filter: FilterSpecification =
+    previewId && previewId !== selectedRouteId ? ['==', ['get', 'routeId'], previewId] : NONE;
+  map.setFilter(ROUTE_LAYER.previewCasing, filter);
+  map.setFilter(ROUTE_LAYER.preview, filter);
+}
+
+type RevealProp = 'line-opacity' | 'line-width';
+const REVEAL: readonly (readonly [string, RevealProp, number, number])[] = [
+  [ROUTE_LAYER.selectedCasing, 'line-opacity', 0, 1],
+  [ROUTE_LAYER.selectedCasing, 'line-width', 6, 9],
+  [ROUTE_LAYER.risk, 'line-opacity', 0, 1],
+  [ROUTE_LAYER.risk, 'line-width', 3, 5],
+];
+
+/**
+ * Grows the newly selected route out of the alternative's thin grey line. Paint transitions only run
+ * between rendered values, so the start values are drawn for one frame before the end values are set.
+ */
+export function revealSelection(map: MapLibreMap, durationMs: number): void {
+  const set = (end: boolean, duration: number) => {
+    for (const [layer, prop, from, to] of REVEAL) {
+      if (!map.getLayer(layer)) return;
+      map.setPaintProperty(layer, `${prop}-transition`, { duration, delay: 0 });
+      map.setPaintProperty(layer, prop, end ? to : from);
+    }
+  };
+  set(false, 0);
+  map.once('render', () => set(true, durationMs));
+  map.triggerRepaint();
 }
 
 export function setRiskSegments(map: MapLibreMap, route: Route | undefined): void {

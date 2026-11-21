@@ -1,4 +1,5 @@
 import type { CSSProperties, KeyboardEvent } from 'react';
+import type { DayMark, NightSpan } from '../../lib/forecastMarks';
 import styles from './ForecastSlider.module.css';
 
 export interface ForecastSliderProps {
@@ -10,6 +11,10 @@ export interface ForecastSliderProps {
   time: string;
   /** "+18 h" */
   offset: string;
+  /** Where each new day starts, in hours after departure. */
+  days?: readonly DayMark[];
+  /** Hours after departure when it is dark where the truck is. */
+  nights?: readonly NightSpan[];
   /** Where the truck is at that time, e.g. "Mile 420" or "Arrived". */
   status?: string;
   arrived?: boolean;
@@ -24,7 +29,13 @@ export interface ForecastSliderProps {
 
 /** A quarter of a day per page key: the steps a driver thinks in (morning, afternoon, night). */
 const PAGE_HOURS = 6;
-const TICKS = [0, 12, 24, 36, 48];
+/** Closer than this to another label, in hours, a day name is left off so labels never collide. */
+const LABEL_GAP_H = 5;
+const NO_DAYS: readonly DayMark[] = [];
+const NO_NIGHTS: readonly NightSpan[] = [];
+
+/** Along the track as the thumb's centre travels: half a thumb in from each end. */
+const along = (hour: number, max: number) => ({ '--at': `${Math.min(1, Math.max(0, hour / max))}` }) as CSSProperties;
 
 export function ForecastSlider({
   value,
@@ -32,6 +43,8 @@ export function ForecastSlider({
   onChange,
   time,
   offset,
+  days = NO_DAYS,
+  nights = NO_NIGHTS,
   status,
   arrived = false,
   valueText,
@@ -60,10 +73,8 @@ export function ForecastSlider({
   };
 
   const fill = { '--fill': `${(value / max) * 100}%` } as CSSProperties;
-  const arrivalAt =
-    arrivalHour !== null && arrivalHour > 0 && arrivalHour <= max
-      ? ({ '--at': `${arrivalHour / max}` } as CSSProperties)
-      : null;
+  const arrivalAt = arrivalHour !== null && arrivalHour > 0 && arrivalHour <= max ? along(arrivalHour, max) : null;
+  const named = days.filter((day) => day.at >= LABEL_GAP_H && max - day.at >= LABEL_GAP_H);
 
   return (
     <div className={styles.slider}>
@@ -88,6 +99,17 @@ export function ForecastSlider({
           )}
         </p>
         <div className={styles.track}>
+          {nights.map((night) => (
+            <span
+              key={night.from}
+              className={styles.night}
+              style={{ ...along(night.from, max), '--to': `${Math.min(1, night.to / max)}` } as CSSProperties}
+              aria-hidden="true"
+            />
+          ))}
+          {days.map((day) => (
+            <span key={day.at} className={styles.midnight} style={along(day.at, max)} aria-hidden="true" />
+          ))}
           <input
             type="range"
             className={styles.range}
@@ -104,11 +126,13 @@ export function ForecastSlider({
           {arrivalAt && <span className={styles.arrival} style={arrivalAt} title="Arrival" aria-hidden="true" />}
         </div>
         <div className={styles.ticks} aria-hidden="true">
-          {TICKS.filter((tick) => tick <= max).map((tick) => (
-            <span key={tick} style={{ '--at': `${tick / max}` } as CSSProperties}>
-              {tick === 0 ? 'Depart' : `+${tick} h`}
+          <span className={styles.start}>Depart</span>
+          {named.map((day) => (
+            <span key={day.at} style={along(day.at, max)}>
+              {day.label}
             </span>
           ))}
+          <span className={styles.end}>{`+${max} h`}</span>
         </div>
       </div>
     </div>

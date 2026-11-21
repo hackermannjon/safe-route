@@ -4,6 +4,8 @@
   /* Mirrored by where the mobile view docks the forecast during playback. */
   --sheet-grip: 32px;
   --sheet-top-gap: calc(env(safe-area-inset-top) + 80px);
+  /* Mirrored by SHEET_MOVE_MS and SHEET_EASING. */
+  --sheet-move: 320ms;
 
   position: fixed;
   z-index: 10;
@@ -17,7 +19,7 @@
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   box-shadow: var(--shadow-float);
   transform: translate3d(0, calc(100% - 50dvh), 0);
-  transition: transform var(--duration-base) cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: transform var(--sheet-move) cubic-bezier(0.2, 0.8, 0.2, 1);
   will-change: transform;
   contain: layout paint;
 }
@@ -124,6 +126,11 @@
  * At half height the scroll area must end at the screen edge, or its last rows are unreachable.
  * While a finger moves the sheet it fills again, so the rows show as they are pulled up.
  */
+/* At half height a vertical swipe on the list moves the sheet; the script takes it, not the browser. */
+.sheet[data-snap='half'] .body {
+  touch-action: pan-x;
+}
+
 .sheet[data-snap='half']:not([data-dragging]) .body {
   flex: 0 0 auto;
   height: calc(50dvh - var(--sheet-peek));

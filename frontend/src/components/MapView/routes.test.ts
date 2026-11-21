@@ -2,7 +2,16 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Route } from '../../types/api';
 import { riskColorExpression } from './riskStyle';
 import type { Map as MapLibreMap } from 'maplibre-gl';
-import { ROUTE_LAYER, pickRoute, riskSegments, routeFeatures, routesBounds, setRouteSelection } from './routes';
+import {
+  ROUTE_LAYER,
+  pickRoute,
+  revealSelection,
+  riskSegments,
+  routeFeatures,
+  routesBounds,
+  setRoutePreview,
+  setRouteSelection,
+} from './routes';
 
 function route(id: string, coordinates: GeoJSON.Position[]): Route {
   return {
@@ -132,5 +141,50 @@ describe('setRouteSelection', () => {
     const { map, setFilter } = fakeMap(false);
     expect(() => setRouteSelection(map, 'B')).not.toThrow();
     expect(setFilter).not.toHaveBeenCalled();
+  });
+});
+
+describe('setRoutePreview', () => {
+  const fakeMap = () => {
+    const setFilter = vi.fn();
+    return { map: { getLayer: (id: string) => ({ id }), setFilter } as unknown as MapLibreMap, setFilter };
+  };
+  const NONE = ['==', ['get', 'routeId'], ''];
+
+  it('draws out the route pointed at', () => {
+    const { map, setFilter } = fakeMap();
+    setRoutePreview(map, 'C', 'A');
+    expect(setFilter).toHaveBeenCalledWith(ROUTE_LAYER.preview, ['==', ['get', 'routeId'], 'C']);
+  });
+
+  it('draws nothing over the selected route or when nothing is pointed at', () => {
+    const { map, setFilter } = fakeMap();
+    setRoutePreview(map, 'A', 'A');
+    setRoutePreview(map, null, 'A');
+    expect(setFilter.mock.calls.every(([, filter]) => JSON.stringify(filter) === JSON.stringify(NONE))).toBe(true);
+  });
+});
+
+describe('revealSelection', () => {
+  it('renders the thin start for a frame before easing to the full width', () => {
+    let rendered: (() => void) | undefined;
+    const setPaintProperty = vi.fn();
+    const map = {
+      getLayer: (id: string) => ({ id }),
+      setPaintProperty,
+      once: (_: string, done: () => void) => (rendered = done),
+      triggerRepaint: vi.fn(),
+    } as unknown as MapLibreMap;
+
+    revealSelection(map, 360);
+    expect(setPaintProperty).toHaveBeenCalledWith(ROUTE_LAYER.risk, 'line-opacity', 0);
+    expect(setPaintProperty).not.toHaveBeenCalledWith(ROUTE_LAYER.risk, 'line-opacity', 1);
+
+    rendered?.();
+    expect(setPaintProperty).toHaveBeenCalledWith(ROUTE_LAYER.risk, 'line-opacity-transition', {
+      duration: 360,
+      delay: 0,
+    });
+    expect(setPaintProperty).toHaveBeenLastCalledWith(ROUTE_LAYER.risk, 'line-width', 5);
   });
 });

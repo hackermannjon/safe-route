@@ -73,6 +73,7 @@
 }
 
 .legend {
+  animation: fade var(--duration-base) var(--ease-standard) both;
   position: absolute;
   z-index: 5;
   left: var(--space-4);
@@ -92,4 +93,16 @@
   left: var(--space-6);
   bottom: var(--space-6);
   width: min(440px, calc(100% - 2 * var(--space-6)));
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .legend {
+    animation: none;
+  }
 }

@@ -24,6 +24,8 @@ export interface RouteListProps {
   routes: RouteListItem[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  /** A card pointed at with a mouse or reached with the keyboard, then null when it is left. */
+  onPreview?: (id: string | null) => void;
 }
 
 /**
@@ -31,7 +33,7 @@ export interface RouteListProps {
  * of the map. The recommended card keeps its mark whichever card is pressed. The cards stay
  * together, so every route is a short scroll away however long the selected one's timeline is.
  */
-export function RouteList({ routes, selectedId, onSelect }: RouteListProps) {
+export function RouteList({ routes, selectedId, onSelect, onPreview }: RouteListProps) {
   return (
     <ul className={styles.list} aria-label="Routes">
       {routes.map((route, position) => {
@@ -41,7 +43,17 @@ export function RouteList({ routes, selectedId, onSelect }: RouteListProps) {
           .join(' ');
         return (
           <li key={route.id} className={styles.item} style={{ '--i': position } as CSSProperties}>
-            <button type="button" className={className} aria-pressed={selected} onClick={() => onSelect(route.id)}>
+            <button
+              type="button"
+              className={className}
+              aria-pressed={selected}
+              onClick={() => onSelect(route.id)}
+              // A touch has no hover to end it, so only a mouse previews.
+              onPointerEnter={(event) => event.pointerType === 'mouse' && onPreview?.(route.id)}
+              onPointerLeave={() => onPreview?.(null)}
+              onFocus={() => onPreview?.(route.id)}
+              onBlur={() => onPreview?.(null)}
+            >
               <span className={styles.head}>
                 <span className={styles.name}>
                   <span className={styles.label}>{route.label}</span>

@@ -87,4 +87,22 @@ describe('ForecastSlider', () => {
     render(<ForecastSlider {...BASE} status="Arrived" arrived />);
     expect(screen.getByText('Arrived')).toHaveAttribute('data-arrived', 'true');
   });
+
+  it('names each new day on the scale, leaving off one too close to an end', () => {
+    const { container } = render(
+      <ForecastSlider
+        {...BASE}
+        days={[
+          { at: 10, label: 'Sun' },
+          { at: 34, label: 'Mon' },
+          { at: 46, label: 'Tue' },
+        ]}
+        nights={[{ from: 2.5, to: 17 }]}
+      />,
+    );
+    const scale = container.querySelector('.ticks');
+    expect(scale).toHaveTextContent('DepartSunMon+48 h');
+    expect(container.querySelectorAll('.midnight')).toHaveLength(3);
+    expect(container.querySelectorAll('.night')).toHaveLength(1);
+  });
 });

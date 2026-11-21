@@ -71,6 +71,18 @@
   box-shadow: var(--shadow-focus), var(--shadow-float);
 }
 
+/* Mirrored by FORECAST_EXIT_MS. */
+.panel[data-leaving] {
+  animation: leave 200ms var(--ease-standard) both;
+}
+
+@keyframes leave {
+  to {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
 @keyframes rise {
   from {
     opacity: 0;

@@ -148,15 +148,43 @@
   white-space: nowrap;
 }
 
-.ticks span:first-child {
+.ticks .start {
   transform: none;
   left: 0;
 }
 
-.ticks span:last-child {
+.ticks .end {
   transform: none;
   left: auto;
   right: 0;
+}
+
+/* Bands and marks sit under the range input, whose own track is drawn over them. */
+.range {
+  position: relative;
+}
+
+.night {
+  position: absolute;
+  top: 9px;
+  left: calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--at));
+  width: calc((100% - var(--thumb)) * (var(--to) - var(--at)));
+  height: 22px;
+  border-radius: 6px;
+  /* A step off the panel fill, outlined, so the track still reads across it. */
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border);
+  pointer-events: none;
+}
+
+.midnight {
+  position: absolute;
+  top: 6px;
+  left: calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--at));
+  width: 1px;
+  height: 28px;
+  background: var(--border);
+  pointer-events: none;
 }
 
 .play {
