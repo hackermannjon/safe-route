@@ -7,8 +7,13 @@ export interface MapPalette {
   casing: string;
   /** Routes that are not selected. */
   alternative: string;
-  /** The selected route. */
+  /** The selected route and the rings of the checkpoints along it. */
   selected: string;
+  /** The checkpoint picked in the list or on the map. */
+  focus: string;
+  /** Fill of the origin ring and outline of the destination disc, and the reverse. */
+  ink: string;
+  surface: string;
 }
 
 /** Only when a token is missing (a test without the stylesheet): visible on either basemap. */
@@ -21,5 +26,8 @@ export function readMapPalette(element: Element = document.documentElement): Map
     casing: read('--bg'),
     alternative: read('--ink-faint'),
     selected: read('--accent'),
+    focus: read('--accent'),
+    ink: read('--ink'),
+    surface: read('--surface-1'),
   };
 }

@@ -10,6 +10,8 @@ function route(id: string, coordinates: GeoJSON.Position[]): Route {
     via: [],
     distance_mi: 1,
     duration_s: 1,
+    arrival: '2026-11-21T14:00:01Z',
+    checkpoints: [],
     geometry: { type: 'LineString', coordinates },
   };
 }

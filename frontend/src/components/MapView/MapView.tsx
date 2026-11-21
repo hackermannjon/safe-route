@@ -3,8 +3,15 @@ import './worker';
 import { AttributionControl, Map as MapLibreMap, NavigationControl } from 'maplibre-gl';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
-import type { Route } from '../../types/api';
-import { fitPadding, type MapPadding, type MapTheme } from './camera';
+import type { Checkpoint, Route } from '../../types/api';
+import { ATTRIBUTION_CLEARANCE_PX, fitPadding, type MapPadding, type MapTheme } from './camera';
+import {
+  CHECKPOINT_LAYER,
+  installCheckpointLayers,
+  pickCheckpoint,
+  setCheckpointData,
+  setCheckpointFocus,
+} from './checkpoints';
 import { readMapPalette, type MapPalette } from './mapPalette';
 import styles from './MapView.module.css';
 import { ROUTE_LAYER, installRouteLayers, pickRoute, routesBounds, setRouteData, setRouteSelection } from './routes';
@@ -13,7 +20,11 @@ export interface MapViewProps {
   routes: readonly Route[];
   selectedRouteId: string | null;
   onSelectRoute?: (id: string) => void;
-  /** Screen space covered by UI floating over the map; routes and controls keep clear of it. */
+  /** The selected route's checkpoints; other routes show none. */
+  checkpoints?: readonly Checkpoint[];
+  selectedCheckpoint?: number | null;
+  onSelectCheckpoint?: (index: number) => void;
+  /** Screen space covered by UI floating over the map; routes, checkpoints and controls keep clear of it. */
   padding?: MapPadding;
   theme?: MapTheme;
   /** Phones pinch to zoom, so the buttons only take room there. */
@@ -21,6 +32,14 @@ export interface MapViewProps {
 }
 
 export type { MapPadding, MapTheme };
+
+const NO_CHECKPOINTS: readonly Checkpoint[] = [];
+/**
+ * A checkpoint picked from the list is always shown at this zoom, in or out, so stepping through
+ * the list keeps one scale: close enough to tell the road, wide enough to see the next stops.
+ */
+export const CHECKPOINT_ZOOM = 9;
+const EASE_MS = 600;
 
 // Keyless vector basemaps; their attribution is required and stays on screen.
 const BASEMAP_STYLE: Record<MapTheme, string> = {
@@ -63,12 +82,16 @@ function fitRoutes(map: MapLibreMap, routes: readonly Route[], padding: MapPaddi
 function installLayers(map: MapLibreMap, palette: MapPalette): void {
   const firstLabel = map.getStyle().layers.find((layer) => layer.type === 'symbol')?.id;
   installRouteLayers(map, palette, firstLabel);
+  installCheckpointLayers(map, palette);
 }
 
 export function MapView({
   routes,
   selectedRouteId,
   onSelectRoute,
+  checkpoints = NO_CHECKPOINTS,
+  selectedCheckpoint = null,
+  onSelectCheckpoint,
   padding = NO_PADDING,
   theme = 'dark',
   zoomControls = true,
@@ -84,9 +107,13 @@ export function MapView({
     routes,
     selectedRouteId,
     onSelectRoute,
+    onSelectCheckpoint,
+    selectedCheckpoint,
     reducedMotion,
     padding,
   });
+  // A checkpoint picked on the map is already in view, so selecting it must not move the camera.
+  const pickedOnMap = useRef<number | null>(null);
   const [webgl] = useState(supportsWebGL);
 
   useEffect(() => {
@@ -94,6 +121,8 @@ export function MapView({
       routes,
       selectedRouteId,
       onSelectRoute,
+      onSelectCheckpoint,
+      selectedCheckpoint,
       reducedMotion,
       padding,
     };
@@ -118,16 +147,25 @@ export function MapView({
       setStyleVersion((v) => v + 1);
     });
     map.on('click', (event) => {
-      const { selectedRouteId: current, onSelectRoute: select } = latest.current;
+      const { selectedRouteId: current, onSelectRoute: select, onSelectCheckpoint: selectCheckpoint } = latest.current;
+      // Dots sit on the selected route, so they win over the route line under them.
+      const index = pickCheckpoint(map, event.point);
+      if (index !== null) {
+        pickedOnMap.current = index;
+        selectCheckpoint?.(index);
+        return;
+      }
       const id = pickRoute(map, event.point, current);
       if (id && id !== current) select?.(id);
     });
-    map.on('mouseenter', ROUTE_LAYER.hit, () => {
-      map.getCanvas().style.cursor = 'pointer';
-    });
-    map.on('mouseleave', ROUTE_LAYER.hit, () => {
-      map.getCanvas().style.cursor = '';
-    });
+    for (const layer of [ROUTE_LAYER.hit, CHECKPOINT_LAYER.stops, CHECKPOINT_LAYER.ends]) {
+      map.on('mouseenter', layer, () => {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', layer, () => {
+        map.getCanvas().style.cursor = '';
+      });
+    }
     mapRef.current = map;
     return () => {
       map.remove();
@@ -167,7 +205,8 @@ export function MapView({
     if (map && loaded) fitRoutes(map, routes, latest.current.padding, !latest.current.reducedMotion);
   }, [routes, loaded]);
 
-  // The sheet moving or a panel opening changes the free area; keep the trip in it.
+  // The sheet moving or a panel opening changes the free area; keep the trip in it, unless a
+  // checkpoint is picked, which has its own placement.
   const { top: padTop, right: padRight, bottom: padBottom, left: padLeft } = padding;
   const firstPadding = useRef(true);
   useEffect(() => {
@@ -177,6 +216,7 @@ export function MapView({
       firstPadding.current = false;
       return;
     }
+    if (latest.current.selectedCheckpoint !== null) return;
     const { routes: current, reducedMotion: still } = latest.current;
     fitRoutes(map, current, { top: padTop, right: padRight, bottom: padBottom, left: padLeft }, !still);
   }, [padTop, padRight, padBottom, padLeft, loaded]);
@@ -185,6 +225,33 @@ export function MapView({
     const map = mapRef.current;
     if (map && styleVersion) setRouteSelection(map, selectedRouteId);
   }, [selectedRouteId, styleVersion]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map && styleVersion) setCheckpointData(map, checkpoints);
+  }, [checkpoints, styleVersion]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleVersion) return;
+    setCheckpointFocus(map, selectedCheckpoint);
+    const fromMap = pickedOnMap.current === selectedCheckpoint;
+    pickedOnMap.current = null;
+    const target = checkpoints.find((cp) => cp.index === selectedCheckpoint);
+    if (!target || fromMap) return;
+    const { clientWidth: width, clientHeight: height } = map.getContainer();
+    const pad = latest.current.padding;
+    // Centred in the free area, above the attribution line.
+    const x = pad.left + Math.max(0, width - pad.left - pad.right) / 2;
+    const y = pad.top + Math.max(0, height - pad.top - pad.bottom - ATTRIBUTION_CLEARANCE_PX) / 2;
+    map.easeTo({
+      center: [target.lon, target.lat],
+      zoom: CHECKPOINT_ZOOM,
+      // Offset rather than camera padding, which would persist and skew later fits.
+      offset: [x - width / 2, y - height / 2],
+      duration: latest.current.reducedMotion ? 0 : EASE_MS,
+    });
+  }, [selectedCheckpoint, checkpoints, styleVersion]);
 
   const insets = {
     '--map-inset-top': `${padTop}px`,

@@ -53,6 +53,7 @@
 }
 
 .route,
+.details,
 .placeholder {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -62,6 +63,12 @@
 .route {
   font: var(--type-body-lg);
   font-weight: 600;
+}
+
+.details {
+  font: var(--type-caption);
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .placeholder {

@@ -45,6 +45,9 @@ export function MobileView({ vm, theme, onToggleTheme }: ViewProps) {
             routes={vm.routes}
             selectedRouteId={vm.selectedRouteId}
             onSelectRoute={vm.selectRoute}
+            checkpoints={vm.checkpoints}
+            selectedCheckpoint={vm.selectedCheckpoint}
+            onSelectCheckpoint={vm.selectCheckpoint}
             padding={padding}
             theme={theme}
             zoomControls={false}
@@ -53,7 +56,7 @@ export function MobileView({ vm, theme, onToggleTheme }: ViewProps) {
 
         <header ref={setTop} className={styles.top}>
           <h1 className="visually-hidden">Safe Route</h1>
-          <TripPill route={vm.tripLine?.route ?? null} onEdit={vm.openForm} />
+          <TripPill route={vm.tripLine?.route ?? null} details={vm.tripLine?.details} onEdit={vm.openForm} />
           <div className={styles.tools}>
             <ThemeToggle theme={theme} onToggle={onToggleTheme} className={styles.theme} />
           </div>

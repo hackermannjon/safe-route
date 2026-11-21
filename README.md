@@ -1,7 +1,8 @@
 # Safe Route
 
-Route planning for truck drivers. Enter an origin and a destination.
-Safe Route returns up to three truck routes.
+Route planning for truck drivers. Enter an origin, a destination, a departure time
+and how far apart the checkpoints should be. Safe Route returns up to three truck routes
+with checkpoints along each one and the time the truck will reach each of them.
 
 ## Run locally
 

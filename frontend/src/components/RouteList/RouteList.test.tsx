@@ -8,6 +8,7 @@ const ROUTES: RouteListItem[] = [
     label: 'Route A',
     distance: '1,016 mi',
     duration: '15 h 41 min',
+    arrival: 'Arrives Sat 11:41 PM',
     via: 'via I-88, I-80, I-76',
   },
   {
@@ -15,6 +16,7 @@ const ROUTES: RouteListItem[] = [
     label: 'Route B',
     distance: '1,059 mi',
     duration: '16 h 36 min',
+    arrival: 'Arrives Sun 12:36 AM',
     via: '',
   },
 ];
@@ -26,6 +28,7 @@ describe('RouteList', () => {
     const first = screen.getByRole('button', { name: /^Route A/ });
     expect(first).toHaveTextContent('1,016 mi');
     expect(first).toHaveTextContent('15 h 41 min');
+    expect(first).toHaveTextContent('Arrives Sat 11:41 PM');
     expect(first).toHaveTextContent('via I-88, I-80, I-76');
     expect(screen.getAllByRole('listitem')).toHaveLength(2);
   });

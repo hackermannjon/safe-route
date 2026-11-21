@@ -8,9 +8,25 @@ export interface GeocodeResult extends Place {
   name: string;
 }
 
+export type SpacingMi = 10 | 25 | 50;
+
 export interface PlanRequest {
   origin: Place;
   destination: Place;
+  /** ISO 8601 with the driver's UTC offset, e.g. "2026-11-21T08:00:00-06:00". */
+  departure: string;
+  spacing_mi: SpacingMi;
+}
+
+export interface Checkpoint {
+  /** 0 is the origin; the last one is the destination. */
+  index: number;
+  /** Route miles from the origin. */
+  mile: number;
+  lat: number;
+  lon: number;
+  /** When the truck gets there, UTC ISO. */
+  eta: string;
 }
 
 export interface Route {
@@ -21,10 +37,17 @@ export interface Route {
   via: string[];
   distance_mi: number;
   duration_s: number;
+  /** UTC ISO, e.g. "2026-11-22T05:44:37Z". */
+  arrival: string;
   geometry: GeoJSON.LineString;
+  /** Origin, every `spacing_mi` miles, and destination. */
+  checkpoints: Checkpoint[];
 }
 
 export interface PlanResponse {
+  /** The requested departure, normalized to UTC. */
+  departure: string;
+  spacing_mi: SpacingMi;
   /** Up to three distinct routes. */
   routes: Route[];
   /** Plain-language caveats about the plan, e.g. when fewer than three routes exist. */

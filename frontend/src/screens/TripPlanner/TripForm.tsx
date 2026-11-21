@@ -1,5 +1,7 @@
 import { Button } from '../../components/Button';
+import { DateTimeField } from '../../components/DateTimeField';
 import { PlaceField } from '../../components/PlaceField';
+import { SegmentedControl } from '../../components/SegmentedControl';
 import type { TripPlannerViewModel } from './useTripPlannerViewModel';
 import styles from './TripForm.module.css';
 
@@ -14,6 +16,8 @@ export function TripForm({ vm, onCancel }: TripFormProps) {
     <form className={styles.form} onSubmit={vm.submit} noValidate aria-label="Trip details">
       <PlaceField label="From" placeholder="City or address" {...vm.origin} />
       <PlaceField label="To" placeholder="City or address" {...vm.destination} />
+      <DateTimeField label="Departure" {...vm.departure} />
+      <SegmentedControl label="Checkpoint every" {...vm.spacing} />
       <div className={styles.actions}>
         <Button type="submit" block loading={vm.planning} loadingLabel="Finding routes">
           Find routes

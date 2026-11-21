@@ -1,5 +1,5 @@
 export const EMPTY_STATE = {
   title: 'Pick the safest way there',
-  body: 'Compare three truck routes side by side and pick the one to drive.',
+  body: 'Compare three truck routes and see when you reach each checkpoint along the way.',
   action: 'Try Chicago → Denver',
 } as const;

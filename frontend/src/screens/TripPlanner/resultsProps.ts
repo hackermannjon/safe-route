@@ -13,5 +13,8 @@ export function resultsProps(vm: TripPlannerViewModel): ResultsContentProps {
     routes: vm.summaries,
     selectedRouteId: vm.selectedRouteId,
     onSelectRoute: vm.selectRoute,
+    timeline: vm.timeline,
+    selectedCheckpoint: vm.selectedCheckpoint,
+    onSelectCheckpoint: vm.selectCheckpoint,
   };
 }

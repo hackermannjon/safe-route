@@ -3,10 +3,12 @@ import { readMapPalette } from './mapPalette';
 
 const DARK = {
   '--bg': '#071a21',
+  '--surface-1': '#0c2530',
+  '--ink': '#ecf3f5',
   '--ink-faint': '#62808c',
   '--accent': '#5b8cff',
 };
-const LIGHT = { ...DARK, '--bg': '#f3f6f7', '--accent': '#1f5bd8' };
+const LIGHT = { ...DARK, '--bg': '#f3f6f7', '--surface-1': '#ffffff', '--accent': '#1f5bd8' };
 
 function themed(tokens: Record<string, string>): HTMLElement {
   const element = document.createElement('div');
@@ -26,6 +28,9 @@ describe('readMapPalette', () => {
       casing: '#071a21',
       alternative: '#62808c',
       selected: '#5b8cff',
+      focus: '#5b8cff',
+      ink: '#ecf3f5',
+      surface: '#0c2530',
     });
   });
 
@@ -33,7 +38,7 @@ describe('readMapPalette', () => {
     const dark = readMapPalette(themed(DARK));
     const light = readMapPalette(themed(LIGHT));
     expect(light.casing).toBe('#f3f6f7');
-    expect(light.selected).toBe('#1f5bd8');
+    expect(light.focus).toBe('#1f5bd8');
     expect(light.casing).not.toBe(dark.casing);
   });
 

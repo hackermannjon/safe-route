@@ -1,18 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { SheetSnap } from '../../components/BottomSheet';
-import { formatDuration, formatMiles } from '../../lib/format';
+import type { TimelineItem } from '../../components/CheckpointTimeline';
+import { formatDuration, formatEta, formatMilepost, formatMiles } from '../../lib/format';
 import { ApiError, api, isAbortError } from '../../services/api';
-import type { GeocodeResult, Place, PlanRequest, Route } from '../../types/api';
-import { selectPlan, selectSelectedRouteId, useTripStore } from '../../stores';
+import type { Checkpoint, GeocodeResult, Place, PlanRequest, Route, SpacingMi } from '../../types/api';
+import {
+  DEFAULT_SPACING,
+  SPACING_OPTIONS,
+  departureBounds,
+  departureError,
+  localInputToIso,
+  nextWholeHour,
+  parseLocalInput,
+  toLocalInputValue,
+  zoneName,
+} from './formModel';
+import { selectPlan, selectSelectedCheckpoint, selectSelectedRouteId, useTripStore } from '../../stores';
 import { usePlaceSearch } from './usePlaceSearch';
 import { useHistoryLayers, type HistoryLayers } from './useHistoryLayers';
 
 type Endpoint = 'origin' | 'destination';
-type Field = Endpoint;
+type Field = Endpoint | 'departure' | 'spacing';
 
 const SERVER_FIELDS: Record<string, Field> = {
   origin: 'origin',
   destination: 'destination',
+  departure: 'departure',
+  spacing_mi: 'spacing',
 };
 
 /** The API may point inside a field ("origin.lat"); the form only knows the top-level input. */
@@ -37,6 +51,8 @@ export interface RouteSummary {
   label: string;
   distance: string;
   duration: string;
+  /** "Arrives Sat 11:40 PM", in the driver's zone. */
+  arrival: string;
   via: string;
 }
 
@@ -46,24 +62,39 @@ function summarize(route: Route): RouteSummary {
     label: route.label,
     distance: formatMiles(route.distance_mi),
     duration: formatDuration(route.duration_s),
+    arrival: `Arrives ${formatEta(route.arrival)}`,
     via: route.via.length ? `via ${route.via.join(', ')}` : '',
   };
 }
 
+const NO_CHECKPOINTS: Checkpoint[] = [];
 const NO_ROUTES: Route[] = [];
 const NO_NOTICES: string[] = [];
+
+function timelineItems(checkpoints: readonly Checkpoint[]): TimelineItem[] {
+  const last = checkpoints.length - 1;
+  return checkpoints.map((cp, i) => ({
+    index: cp.index,
+    place: i === 0 ? 'Start · Mile 0' : i === last ? `Arrive · ${formatMilepost(cp.mile)}` : formatMilepost(cp.mile),
+    eta: formatEta(cp.eta),
+    kind: i === 0 ? 'origin' : i === last ? 'destination' : 'stop',
+  }));
+}
 
 /** The trip in one line, for the entry that opens the form: "Chicago → Denver". */
 export interface TripLine {
   route: string;
+  /** "Sat 8:00 AM" */
+  details: string;
 }
 
 /** Up to the first comma: "Chicago, Illinois, United States" reads "Chicago". */
 const shortPlace = (label: string) => label.split(',')[0].trim();
 
-function tripLine(origin: string, destination: string): TripLine {
+function tripLine(origin: string, destination: string, departureIso: string | null): TripLine {
   return {
     route: `${shortPlace(origin)} → ${shortPlace(destination)}`,
+    details: departureIso ? formatEta(departureIso) : '',
   };
 }
 
@@ -89,6 +120,8 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
     origin: EMPTY_INPUT,
     destination: EMPTY_INPUT,
   });
+  const [departure, setDeparture] = useState(() => toLocalInputValue(nextWholeHour(new Date())));
+  const [spacing, setSpacing] = useState<SpacingMi>(DEFAULT_SPACING);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<Field, string>>>({});
   const [planning, setPlanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -101,6 +134,7 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
 
   const plan = useTripStore(selectPlan);
   const selectedRouteId = useTripStore(selectSelectedRouteId);
+  const selectedCheckpoint = useTripStore(selectSelectedCheckpoint);
   // getState() returns a new object after every update, but the actions in it never change;
   // reading them once keeps every callback below stable.
   const store = useMemo(() => useTripStore.getState(), []);
@@ -125,6 +159,16 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
   const select = useCallback((endpoint: Endpoint, result: GeocodeResult) => {
     setInputs((prev) => ({ ...prev, [endpoint]: { query: result.label, selected: result } }));
     setFieldErrors((prev) => ({ ...prev, [endpoint]: undefined }));
+  }, []);
+
+  const changeDeparture = useCallback((value: string) => {
+    setDeparture(value);
+    setFieldErrors((prev) => ({ ...prev, departure: undefined }));
+  }, []);
+
+  const changeSpacing = useCallback((value: SpacingMi) => {
+    setSpacing(value);
+    setFieldErrors((prev) => ({ ...prev, spacing: undefined }));
   }, []);
 
   const runPlan = useCallback(
@@ -175,15 +219,20 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
       const problems: Partial<Record<Field, string>> = {};
       if (!origin.selected) problems.origin = 'Pick a starting point from the list.';
       if (!destination.selected) problems.destination = 'Pick a destination from the list.';
+      const departureProblem = departureError(departure, new Date());
+      if (departureProblem) problems.departure = departureProblem;
       setFieldErrors(problems);
-      if (!origin.selected || !destination.selected) return;
+      const departureIso = localInputToIso(departure);
+      if (!origin.selected || !destination.selected || departureProblem || !departureIso) return;
 
       await runPlan({
         origin: toPlace(origin.selected),
         destination: toPlace(destination.selected),
+        departure: departureIso,
+        spacing_mi: spacing,
       });
     },
-    [inputs, runPlan],
+    [inputs, departure, spacing, runPlan],
   );
 
   /** Sends the last request again, for failures the form cannot fix (timeouts, upstream errors). */
@@ -205,8 +254,26 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
   }, []);
 
   const summaries = useMemo(() => routes.map(summarize), [routes]);
+  const checkpoints = useMemo(
+    () => routes.find((route) => route.id === selectedRouteId)?.checkpoints ?? NO_CHECKPOINTS,
+    [routes, selectedRouteId],
+  );
+  const timeline = useMemo(() => timelineItems(checkpoints), [checkpoints]);
 
   const selectRoute = useCallback((id: string) => store.selectRoute(id), [store]);
+  const selectCheckpoint = useCallback(
+    (index: number) => {
+      if (!checkpoints.some((cp) => cp.index === index)) return;
+      store.selectCheckpoint(index);
+      // A full sheet hides the map, where the checkpoint is shown.
+      setSheetSnap((snap) => (snap === 'full' ? 'half' : snap));
+    },
+    [checkpoints, store],
+  );
+  // Picker bounds and zone name only guide the input; they need not tick with the clock.
+  const [openedAt] = useState(() => new Date());
+  const bounds = useMemo(() => departureBounds(openedAt), [openedAt]);
+  const departureDate = parseLocalInput(departure);
 
   const status: PlanStatus = planning ? 'loading' : error ? 'error' : routes.length > 0 ? 'ready' : 'idle';
   /** Anything past the empty start: a plan, its loading or its failure. */
@@ -214,11 +281,11 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
 
   // On screen it names the plan that was made, not edits since; before one, it previews the form.
   const line = useMemo<TripLine | null>(() => {
-    if (planned) return tripLine(planned.origin.label, planned.destination.label);
+    if (planned) return tripLine(planned.origin.label, planned.destination.label, planned.departure);
     const { origin, destination } = inputs;
     if (!origin.selected || !destination.selected) return null;
-    return tripLine(origin.selected.label, destination.selected.label);
-  }, [planned, inputs]);
+    return tripLine(origin.selected.label, destination.selected.label, localInputToIso(departure));
+  }, [planned, inputs, departure]);
 
   const onHistoryPop = useCallback(({ form, results }: HistoryLayers) => {
     setFormOpen(form);
@@ -267,6 +334,20 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
       onQueryChange: (query: string) => setQuery('destination', query),
       onSelect: (result: GeocodeResult) => select('destination', result),
     },
+    departure: {
+      value: departure,
+      min: bounds.min,
+      max: bounds.max,
+      hint: `Your local time (${zoneName(departureDate ?? openedAt)})`,
+      error: fieldErrors.departure,
+      onChange: changeDeparture,
+    },
+    spacing: {
+      value: spacing,
+      options: SPACING_OPTIONS,
+      error: fieldErrors.spacing,
+      onChange: changeSpacing,
+    },
     planning,
     error,
     routes,
@@ -277,6 +358,11 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
     notices,
     selectedRouteId,
     selectRoute,
+    /** The selected route's checkpoints, for the map. */
+    checkpoints,
+    timeline,
+    selectedCheckpoint,
+    selectCheckpoint,
     submit,
     status,
     hasResults,

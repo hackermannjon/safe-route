@@ -1,0 +1,86 @@
+.fieldset {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.legend {
+  padding: 0;
+  margin-bottom: var(--space-2);
+  font: var(--type-label);
+  letter-spacing: var(--type-label-tracking);
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.track {
+  display: grid;
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.track[data-invalid] {
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+.segment {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 42px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: background-color var(--duration-fast) ease;
+}
+
+/* With the track's padding the whole control is 48px tall. */
+.input {
+  position: absolute;
+  inset: -3px 0;
+  width: 100%;
+  height: calc(100% + 6px);
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.text {
+  font: var(--type-body);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-muted);
+}
+
+@media (hover: hover) {
+  .segment:hover .text {
+    color: var(--ink);
+  }
+}
+
+.segment:has(.input:checked) {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.input:checked + .text {
+  color: var(--ink);
+}
+
+.segment:has(.input:focus-visible) {
+  box-shadow: var(--shadow-focus);
+}
+
+.error {
+  margin: 0;
+  font: var(--type-caption);
+  font-size: 13px;
+  color: var(--danger);
+}

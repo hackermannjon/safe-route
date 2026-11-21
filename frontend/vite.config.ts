@@ -37,6 +37,8 @@ export default defineConfig(({ mode }) => {
         modules: { classNameStrategy: 'non-scoped' },
       },
       restoreMocks: true,
+      // Departure and ETA tests read wall-clock times; pin a zone that observes DST.
+      env: { TZ: 'America/Chicago' },
     },
   };
 });

@@ -51,7 +51,12 @@ export function DesktopView({ vm, theme, onToggleTheme }: ViewProps) {
           {vm.formExpanded ? (
             <TripForm vm={vm} onCancel={vm.hasResults ? vm.closeForm : undefined} />
           ) : (
-            <TripPill variant="inline" route={vm.tripLine?.route ?? null} onEdit={vm.openForm} />
+            <TripPill
+              variant="inline"
+              route={vm.tripLine?.route ?? null}
+              details={vm.tripLine?.details}
+              onEdit={vm.openForm}
+            />
           )}
         </div>
 
@@ -75,6 +80,9 @@ export function DesktopView({ vm, theme, onToggleTheme }: ViewProps) {
           routes={vm.routes}
           selectedRouteId={vm.selectedRouteId}
           onSelectRoute={vm.selectRoute}
+          checkpoints={vm.checkpoints}
+          selectedCheckpoint={vm.selectedCheckpoint}
+          onSelectCheckpoint={vm.selectCheckpoint}
           theme={theme}
         />
       </main>
