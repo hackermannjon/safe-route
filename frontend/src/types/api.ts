@@ -105,6 +105,30 @@ export interface PlanResponse {
   notices: string[];
 }
 
+export interface HeatmapRequest {
+  /** The plan's departure. */
+  departure: string;
+  cargo_lb: number;
+  /** Each planned route's `geometry.coordinates`; the corridor is drawn around all of them. */
+  routes: GeoJSON.Position[][];
+}
+
+/** Server metric names; each frame value is an integer to multiply by `scale`. */
+export type HeatmapWireMetric = 'risk' | 'wind_mph' | 'rain_in_h' | 'snow_in_h';
+
+export interface HeatmapResponse {
+  departure: string;
+  cargo_lb: number;
+  /** Cell (row, col) is centred on (lat0 + row * dlat, lon0 + col * dlon); row 0 is the southernmost. */
+  grid: { lat0: number; lon0: number; dlat: number; dlon: number; rows: number; cols: number };
+  /** Row-major indices of the cells inside the corridor, ascending. */
+  cells: number[];
+  /** 49 whole UTC hours: the hour nearest departure, then every hour to 48 h later. */
+  hours: string[];
+  /** One frame per hour, one value per entry of `cells`. Risk is the API's level, 0 = Low to 4 = No Travel. */
+  values: Record<HeatmapWireMetric, { scale: number; frames: number[][] }>;
+}
+
 export interface ApiError {
   error: string;
   field?: string;

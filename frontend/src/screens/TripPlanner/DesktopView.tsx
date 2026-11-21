@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { EmptyState } from '../../components/EmptyState';
 import type { MapPadding, MapTheme } from '../../components/MapView/MapView';
 import { RiskLegend } from '../../components/RiskLegend';
 import { ThemeToggle } from '../../components/ThemeToggle';
 import { TripPill } from '../../components/TripPill';
+import { useCoverage } from '../../hooks/useCoverage';
 import { EMPTY_STATE } from './copy';
-import { LazyMapView } from './LazyMapView';
+import { ForecastPanel, WeatherToggle } from './ForecastPanel';
+import { TripMap } from './TripMap';
 import { ResultsContent } from './ResultsContent';
 import { resultsProps } from './resultsProps';
 import { TripForm } from './TripForm';
@@ -18,15 +20,20 @@ interface ViewProps {
   onToggleTheme: () => void;
 }
 
-// The panel sits beside the map, not over it; only the legend floats.
+// The panel sits beside the map, not over it; only the toggle and the legend or forecast float.
+const TOGGLE_CLEARANCE = 64;
 const LEGEND_CLEARANCE = 56;
 
 export function DesktopView({ vm, theme, onToggleTheme }: ViewProps) {
   const panelRef = useRef<HTMLElement>(null);
   const formRef = useRef<HTMLDivElement>(null);
   const wasExpanded = useRef(vm.formExpanded);
-  const bottom = vm.showLegend ? LEGEND_CLEARANCE : 0;
-  const padding = useMemo<MapPadding>(() => ({ top: 0, right: 0, bottom, left: 0 }), [bottom]);
+  const [forecast, setForecast] = useState<HTMLElement | null>(null);
+  const forecastCoverage = useCoverage(forecast, 'bottom', 200);
+  const heatmapOn = vm.heatmap.status !== 'off';
+  const bottom = heatmapOn ? forecastCoverage : vm.showLegend ? LEGEND_CLEARANCE : 0;
+  const top = vm.heatmap.available ? TOGGLE_CLEARANCE : 0;
+  const padding = useMemo<MapPadding>(() => ({ top, right: 0, bottom, left: 0 }), [top, bottom]);
 
   // Keep keyboard focus on what replaced the control it was on: the trip line after the form
   // collapses, the first field after it opens again.
@@ -82,7 +89,7 @@ export function DesktopView({ vm, theme, onToggleTheme }: ViewProps) {
       </aside>
 
       <main className={styles.map}>
-        <LazyMapView
+        <TripMap
           routes={vm.routes}
           selectedRouteId={vm.selectedRouteId}
           onSelectRoute={vm.selectRoute}
@@ -93,7 +100,9 @@ export function DesktopView({ vm, theme, onToggleTheme }: ViewProps) {
           padding={padding}
           theme={theme}
         />
-        {vm.showLegend && <RiskLegend compact className={styles.legend} />}
+        {vm.heatmap.available && <WeatherToggle heatmap={vm.heatmap} className={styles.toggle} />}
+        {vm.showLegend && !heatmapOn && <RiskLegend compact className={styles.legend} />}
+        {heatmapOn && <ForecastPanel ref={setForecast} heatmap={vm.heatmap} className={styles.forecast} />}
       </main>
     </div>
   );

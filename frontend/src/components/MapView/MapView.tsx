@@ -1,9 +1,11 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './worker';
-import { AttributionControl, Map as MapLibreMap, NavigationControl, Popup } from 'maplibre-gl';
+import { AttributionControl, Map as MapLibreMap, Marker, NavigationControl, Popup } from 'maplibre-gl';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
+import { PLAY_STEP_MS, type HeatmapData, type HeatmapMetric } from '../../lib/heatmap';
+import type { TruckPosition } from '../../lib/truck';
 import type { Checkpoint, Route } from '../../types/api';
 import { ATTRIBUTION_CLEARANCE_PX, fitPadding, type MapPadding, type MapTheme } from './camera';
 import { CheckpointPopup } from './CheckpointPopup';
@@ -14,6 +16,7 @@ import {
   setCheckpointData,
   setCheckpointFocus,
 } from './checkpoints';
+import { HeatmapRenderer, installHeatmapLayers } from './heatmapLayer';
 import styles from './MapView.module.css';
 import { popupCentered, popupFit, type ScreenPoint } from './popupPlacement';
 import { addGlyphImages, readMapPalette, type MapPalette } from './riskStyle';
@@ -38,6 +41,10 @@ export interface MapViewProps {
   onSelectCheckpoint?: (index: number) => void;
   /** Escape, the popup's close button or a click on empty map. */
   onCloseCheckpoint?: () => void;
+  /** The corridor weather field at one forecast hour; null hides it. */
+  heatmap?: MapHeatmap | null;
+  /** The truck on the selected route at the forecast hour; null hides it. */
+  truck?: TruckPosition | null;
   /** Screen space covered by UI floating over the map; routes, popups and controls keep clear of it. */
   padding?: MapPadding;
   theme?: MapTheme;
@@ -49,12 +56,22 @@ export interface MapViewProps {
 
 export type { MapPadding, MapTheme };
 
+export interface MapHeatmap {
+  data: HeatmapData;
+  hour: number;
+  metric: HeatmapMetric;
+  /** Playback cross-fades hours and glides the truck, unless the driver prefers reduced motion. */
+  playing: boolean;
+}
+
 const NO_CHECKPOINTS: readonly Checkpoint[] = [];
 /**
  * A checkpoint picked from the list is always shown at this zoom, in or out, so stepping through
  * the list keeps one scale: close enough to tell the road, wide enough to see the next stops.
  */
 export const CHECKPOINT_ZOOM = 9;
+/** Playback follows the truck at about 150 miles across a phone, close enough to read the roads. */
+export const FOLLOW_ZOOM = 8;
 const EASE_MS = 600;
 /** Clears the dot and its focus ring. */
 const POPUP_OFFSET_PX = 14;
@@ -84,6 +101,37 @@ function supportsWebGL(): boolean {
   }
 }
 
+/** Most of a playback step, so the truck rests a moment at each hour. */
+const TRUCK_GLIDE_MS = PLAY_STEP_MS * 0.8;
+
+/** Pixels from the map's centre to the centre of the area the panels leave free. */
+const freeCentreOffset = (pad: MapPadding): [number, number] => [
+  (pad.left - pad.right) / 2,
+  (pad.top - pad.bottom) / 2,
+];
+
+/** Puts `at` in the middle of the free area without changing the zoom, for per-frame follow. */
+function centreOn(map: MapLibreMap, at: [number, number], pad: MapPadding): void {
+  const [dx, dy] = freeCentreOffset(pad);
+  const point = map.project(at);
+  map.jumpTo({ center: map.unproject([point.x - dx, point.y - dy]) });
+}
+
+function TruckIcon({ arrived }: { arrived: boolean }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      {arrived ? (
+        <path d="M9.5 16.2 5.3 12l-1.4 1.4 5.6 5.6 11-11-1.4-1.4z" fill="currentColor" />
+      ) : (
+        <path
+          d="M2 6.5A1.5 1.5 0 0 1 3.5 5h9A1.5 1.5 0 0 1 14 6.5V8h3.2a1.5 1.5 0 0 1 1.2.6l2.3 3.1c.2.3.3.6.3.9v3.9a1.5 1.5 0 0 1-1.5 1.5h-.6a2.6 2.6 0 0 1-5.1 0H9.2a2.6 2.6 0 0 1-5.1 0h-.6A1.5 1.5 0 0 1 2 16.5zm12 3.3V12h4.9l-1.6-2.2zM6.6 16.8a1 1 0 1 0 0 2 1 1 0 0 0 0-2m9.8 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2"
+          fill="currentColor"
+        />
+      )}
+    </svg>
+  );
+}
+
 /** Frames every route in the free area, so the alternatives are visible next to the one selected. */
 function fitRoutes(map: MapLibreMap, routes: readonly Route[], padding: MapPadding, animate: boolean): void {
   const bounds = routesBounds(routes);
@@ -101,6 +149,7 @@ function installLayers(map: MapLibreMap, palette: MapPalette): void {
   const firstLabel = map.getStyle().layers.find((layer) => layer.type === 'symbol')?.id;
   addGlyphImages(map, palette);
   installRouteLayers(map, palette, firstLabel);
+  installHeatmapLayers(map, ROUTE_LAYER.altCasing);
   installCheckpointLayers(map, palette);
 }
 
@@ -112,6 +161,8 @@ export function MapView({
   selectedCheckpoint = null,
   onSelectCheckpoint,
   onCloseCheckpoint,
+  heatmap = null,
+  truck = null,
   padding = NO_PADDING,
   theme = 'dark',
   zoomControls = true,
@@ -131,6 +182,7 @@ export function MapView({
     onSelectCheckpoint,
     onCloseCheckpoint,
     reducedMotion,
+    heatmap,
     padding,
   });
   // A checkpoint picked on the map is already in view; the camera moves only if its popup needs room.
@@ -145,6 +197,7 @@ export function MapView({
       onSelectCheckpoint,
       onCloseCheckpoint,
       reducedMotion,
+      heatmap,
       padding,
     };
   });
@@ -152,6 +205,17 @@ export function MapView({
   // React renders the popup's content into this node; MapLibre positions it.
   const [popupNode] = useState(() => document.createElement('div'));
   const popupRef = useRef<Popup | null>(null);
+  const [truckNode] = useState(() => {
+    const node = document.createElement('div');
+    node.className = styles.truck;
+    return node;
+  });
+  const truckRef = useRef<Marker | null>(null);
+  const glideRef = useRef<number | null>(null);
+  // Set when playback starts; the driver panning or zooming the map hands the camera back.
+  const followRef = useRef(false);
+  const heatmapRef = useRef<HeatmapRenderer | null>(null);
+  const paletteRef = useRef<MapPalette | null>(null);
   const themeRef = useRef(theme);
   const focused = checkpoints.find((cp) => cp.index === selectedCheckpoint) ?? null;
   const routeLabel = routes.find((route) => route.id === selectedRouteId)?.label ?? '';
@@ -166,10 +230,13 @@ export function MapView({
     });
     // OpenFreeMap and OpenStreetMap require visible attribution; narrow maps get the compact form.
     map.addControl(new AttributionControl(), 'bottom-right');
+    heatmapRef.current = new HeatmapRenderer(map);
     // Fires for the first basemap and again after every theme swap.
     map.on('style.load', () => {
       const palette = readMapPalette();
+      paletteRef.current = palette;
       installLayers(map, palette);
+      heatmapRef.current?.detach();
       setStyleVersion((v) => v + 1);
     });
     // Above the dot rather than beside it, so where it lands depends only on the dot's position.
@@ -204,15 +271,21 @@ export function MapView({
         map.getCanvas().style.cursor = '';
       });
     }
+    truckRef.current = new Marker({ element: truckNode, anchor: 'center' });
     mapRef.current = map;
     return () => {
+      heatmapRef.current?.dispose();
+      heatmapRef.current = null;
+      if (glideRef.current !== null) cancelAnimationFrame(glideRef.current);
+      truckRef.current?.remove();
+      truckRef.current = null;
       popupRef.current?.remove();
       popupRef.current = null;
       map.remove();
       mapRef.current = null;
       setStyleVersion(0);
     };
-  }, [webgl, popupNode]);
+  }, [webgl, popupNode, truckNode]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -233,6 +306,96 @@ export function MapView({
     // diff: false so the swap never tries to merge app layers into the new style's layer list.
     map?.setStyle(BASEMAP_STYLE[theme], { diff: false });
   }, [theme]);
+
+  const heatmapData = heatmap?.data ?? null;
+  const heatmapMetric = heatmap?.metric ?? 'risk';
+  const heatmapHour = heatmap?.hour ?? 0;
+
+  useEffect(() => {
+    const renderer = heatmapRef.current;
+    if (!renderer || !styleVersion || !paletteRef.current) return;
+    renderer.setField(heatmapData, heatmapMetric, paletteRef.current);
+    renderer.show(latest.current.heatmap?.hour ?? 0, false);
+  }, [heatmapData, heatmapMetric, styleVersion]);
+
+  useEffect(() => {
+    const { heatmap: current, reducedMotion: still } = latest.current;
+    if (loaded) heatmapRef.current?.show(heatmapHour, Boolean(current?.playing) && !still);
+  }, [heatmapHour, loaded]);
+
+  const playing = Boolean(heatmap?.playing);
+  useEffect(() => {
+    const map = mapRef.current;
+    const marker = truckRef.current;
+    if (!map || !marker || !loaded || !playing || !marker.getElement().isConnected) return;
+    followRef.current = true;
+    const { padding: pad, reducedMotion: still } = latest.current;
+    map.easeTo({
+      center: marker.getLngLat(),
+      zoom: Math.max(map.getZoom(), FOLLOW_ZOOM),
+      offset: freeCentreOffset(pad),
+      duration: still ? 0 : EASE_MS,
+    });
+  }, [playing, loaded]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loaded) return;
+    // Only the driver's own gestures carry an originalEvent; the camera's eases do not.
+    const release = (event: { originalEvent?: unknown }) => {
+      if (event.originalEvent) followRef.current = false;
+    };
+    map.on('dragstart', release);
+    map.on('zoomstart', release);
+    return () => {
+      map.off('dragstart', release);
+      map.off('zoomstart', release);
+    };
+  }, [loaded]);
+
+  const truckLon = truck?.lon;
+  const truckLat = truck?.lat;
+  const truckArrived = truck?.arrived ?? false;
+  useEffect(() => {
+    truckNode.toggleAttribute('data-arrived', truckArrived);
+  }, [truckNode, truckArrived]);
+  useEffect(() => {
+    const map = mapRef.current;
+    const marker = truckRef.current;
+    if (!map || !marker || !loaded) return;
+    if (glideRef.current !== null) cancelAnimationFrame(glideRef.current);
+    glideRef.current = null;
+    if (truckLon === undefined || truckLat === undefined) {
+      followRef.current = false;
+      marker.remove();
+      return;
+    }
+    const target: [number, number] = [truckLon, truckLat];
+    const { heatmap: current, reducedMotion: still } = latest.current;
+    const onMap = marker.getElement().isConnected;
+    // Whichever way the truck moves, a following camera keeps it in the middle of the free area.
+    const follow = (at: [number, number]) => {
+      if (followRef.current && !map.isMoving()) centreOn(map, at, latest.current.padding);
+    };
+    if (!onMap || !current?.playing || still) {
+      marker.setLngLat(target);
+      if (!onMap) marker.addTo(map);
+      follow(target);
+      return;
+    }
+    // Between hours the truck glides in a straight line; an hour is a few pixels at trip scale.
+    const from = marker.getLngLat();
+    const started = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - started) / TRUCK_GLIDE_MS);
+      const ease = t * (2 - t);
+      const at: [number, number] = [from.lng + (target[0] - from.lng) * ease, from.lat + (target[1] - from.lat) * ease];
+      marker.setLngLat(at);
+      follow(at);
+      glideRef.current = t < 1 ? requestAnimationFrame(step) : null;
+    };
+    glideRef.current = requestAnimationFrame(step);
+  }, [truckLon, truckLat, loaded]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -258,7 +421,13 @@ export function MapView({
     }
     if (popupRef.current?.isOpen()) return;
     const { routes: current, reducedMotion: still } = latest.current;
-    fitRoutes(map, current, { top: padTop, right: padRight, bottom: padBottom, left: padLeft }, !still);
+    const pad = { top: padTop, right: padRight, bottom: padBottom, left: padLeft };
+    const marker = truckRef.current;
+    if (followRef.current && marker?.getElement().isConnected) {
+      map.easeTo({ center: marker.getLngLat(), offset: freeCentreOffset(pad), duration: still ? 0 : EASE_MS });
+      return;
+    }
+    fitRoutes(map, current, pad, !still);
   }, [padTop, padRight, padBottom, padLeft, loaded]);
 
   useEffect(() => {
@@ -353,6 +522,7 @@ export function MapView({
         role="region"
         aria-label="Route map"
       />
+      {truck && createPortal(<TruckIcon arrived={truck.arrived} />, truckNode)}
       {focused &&
         createPortal(
           <CheckpointPopup checkpoint={focused} routeLabel={routeLabel} onClose={onCloseCheckpoint} />,

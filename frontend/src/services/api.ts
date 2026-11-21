@@ -1,4 +1,11 @@
-import type { ApiError as ApiErrorBody, GeocodeResult, PlanRequest, PlanResponse } from '../types/api';
+import type {
+  ApiError as ApiErrorBody,
+  GeocodeResult,
+  HeatmapRequest,
+  HeatmapResponse,
+  PlanRequest,
+  PlanResponse,
+} from '../types/api';
 
 // Empty means same origin: in development Vite proxies /api to Django, so the app
 // also works when opened from another device on the network.
@@ -88,7 +95,12 @@ export function planTrip(body: PlanRequest, signal?: AbortSignal): Promise<PlanR
   return request('/api/plan', { method: 'POST', body, signal });
 }
 
+export function corridorHeatmap(body: HeatmapRequest, signal?: AbortSignal): Promise<HeatmapResponse> {
+  return request('/api/heatmap', { method: 'POST', body, signal });
+}
+
 export const api = {
   geocode,
   plan: planTrip,
+  heatmap: corridorHeatmap,
 } as const;

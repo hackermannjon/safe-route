@@ -65,6 +65,13 @@
   min-height: 0;
 }
 
+.toggle {
+  position: absolute;
+  z-index: 5;
+  top: var(--space-4);
+  left: var(--space-4);
+}
+
 .legend {
   position: absolute;
   z-index: 5;
@@ -76,4 +83,13 @@
   background: var(--surface-1);
   box-shadow: var(--shadow-float);
   pointer-events: none;
+}
+
+/* Bottom left and narrow, so most of a 600px map beside the panel stays in view. */
+.forecast {
+  position: absolute;
+  z-index: 5;
+  left: var(--space-4);
+  bottom: var(--space-4);
+  width: min(460px, calc(100% - 2 * var(--space-4)));
 }

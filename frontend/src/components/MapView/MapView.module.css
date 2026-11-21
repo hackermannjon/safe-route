@@ -105,3 +105,23 @@
 .popup :global(.maplibregl-popup-content) {
   color: var(--ink);
 }
+
+/* Above every map layer, as a DOM marker: the truck is the one thing that moves with the slider. */
+.truck {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 3px solid var(--accent);
+  border-radius: 50%;
+  color: var(--ink);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-float);
+  pointer-events: none;
+}
+
+.truck[data-arrived] {
+  border-color: var(--risk-low);
+  color: var(--risk-ink);
+  background: var(--risk-low);
+}

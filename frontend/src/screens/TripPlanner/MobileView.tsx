@@ -7,8 +7,9 @@ import { TripPill } from '../../components/TripPill';
 import { useCoverage } from '../../hooks/useCoverage';
 import { useViewportHeight } from '../../hooks/useViewportHeight';
 import { EMPTY_STATE } from './copy';
+import { ForecastPanel, WeatherToggle } from './ForecastPanel';
 import { FormPanel } from './FormPanel';
-import { LazyMapView } from './LazyMapView';
+import { TripMap } from './TripMap';
 import { PeekHeader } from './PeekHeader';
 import { ResultsContent } from './ResultsContent';
 import { resultsProps } from './resultsProps';
@@ -28,20 +29,30 @@ export function MobileView({ vm, theme, onToggleTheme }: ViewProps) {
   const viewport = useViewportHeight();
   const [top, setTop] = useState<HTMLElement | null>(null);
   const [intro, setIntro] = useState<HTMLElement | null>(null);
+  const [forecast, setForecast] = useState<HTMLElement | null>(null);
   const topCoverage = useCoverage(top, 'top', 80);
   const introCoverage = useCoverage(intro, 'bottom', 220);
+  const forecastCoverage = useCoverage(forecast, 'bottom', 300);
+  const heatmapOn = vm.heatmap.status !== 'off';
   const peek = vm.sheetSnap === 'peek';
+  const minimized = peek && vm.heatmap.playing;
 
   // A full sheet hides the map anyway; fit as if half so the routes don't jump when it comes down.
-  const bottom = !vm.hasResults ? introCoverage : !peek ? Math.round(viewport * 0.5) : PEEK_CLEARANCE;
+  const bottom = !vm.hasResults
+    ? introCoverage
+    : !peek
+      ? Math.round(viewport * 0.5)
+      : heatmapOn
+        ? forecastCoverage
+        : PEEK_CLEARANCE;
   const padding = useMemo<MapPadding>(() => ({ top: topCoverage, right: 0, bottom, left: 0 }), [topCoverage, bottom]);
 
   return (
-    <div className={styles.root} data-snap={vm.sheetSnap}>
+    <div className={styles.root} data-snap={vm.sheetSnap} data-minimized={minimized ? '' : undefined}>
       {/* The form is modal; inert keeps Tab and screen readers out of what is behind it. */}
       <div className={styles.stage} inert={vm.formOpen}>
         <main className={styles.map}>
-          <LazyMapView
+          <TripMap
             routes={vm.routes}
             selectedRouteId={vm.selectedRouteId}
             onSelectRoute={vm.selectRoute}
@@ -60,6 +71,7 @@ export function MobileView({ vm, theme, onToggleTheme }: ViewProps) {
           <h1 className="visually-hidden">Safe Route</h1>
           <TripPill route={vm.tripLine?.route ?? null} details={vm.tripLine?.details} onEdit={vm.openForm} />
           <div className={styles.tools}>
+            {vm.heatmap.available && <WeatherToggle heatmap={vm.heatmap} />}
             <ThemeToggle theme={theme} onToggle={onToggleTheme} className={styles.theme} />
           </div>
         </header>
@@ -75,11 +87,14 @@ export function MobileView({ vm, theme, onToggleTheme }: ViewProps) {
           </div>
         )}
 
+        {heatmapOn && peek && <ForecastPanel ref={setForecast} heatmap={vm.heatmap} className={styles.forecast} />}
+
         {vm.hasResults && (
           <BottomSheet
             label="Trip results"
             snap={vm.sheetSnap}
             onSnapChange={vm.setSheetSnap}
+            minimized={minimized}
             header={<PeekHeader status={vm.status} error={vm.error} route={vm.selectedSummary} />}
           >
             {/* The peek header already carries the route summary and the status line. */}

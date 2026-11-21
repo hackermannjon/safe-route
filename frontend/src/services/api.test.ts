@@ -62,4 +62,23 @@ describe('api', () => {
     expect(init.body).toBe('{"origin":{"lat":1,"lon":2,"label":""}}');
     expect(new Headers(init.headers).get('Content-Type')).toBe('application/json');
   });
+  it('posts the routes for the corridor heatmap', async () => {
+    const fetchMock = respond(200, { cells: [] });
+    vi.stubGlobal('fetch', fetchMock);
+    const body = {
+      departure: '2026-11-21T14:00:00Z',
+      cargo_lb: 0,
+      routes: [
+        [
+          [-87.6, 41.9],
+          [-88, 41.5],
+        ],
+      ],
+    };
+    await api.heatmap(body);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${API_BASE_URL}/api/heatmap`);
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual(body);
+  });
 });

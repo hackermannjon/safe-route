@@ -3,7 +3,15 @@ import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { BottomSheet, type SheetSnap } from './BottomSheet';
 
-function Sheet({ initial = 'half', onChange }: { initial?: SheetSnap; onChange?: (snap: SheetSnap) => void }) {
+function Sheet({
+  initial = 'half',
+  onChange,
+  minimized,
+}: {
+  initial?: SheetSnap;
+  onChange?: (snap: SheetSnap) => void;
+  minimized?: boolean;
+}) {
   const [snap, setSnap] = useState<SheetSnap>(initial);
   return (
     <BottomSheet
@@ -14,6 +22,7 @@ function Sheet({ initial = 'half', onChange }: { initial?: SheetSnap; onChange?:
         setSnap(next);
       }}
       header={<p>Route B</p>}
+      minimized={minimized}
     >
       <button type="button">Route A</button>
     </BottomSheet>
@@ -24,6 +33,14 @@ const sheet = () => screen.getByRole('region', { name: 'Trip results' });
 const handle = () => screen.getByRole('button', { name: /^Trip results,/ });
 
 describe('BottomSheet', () => {
+  it('sinks to its grip only while minimized at peek, and rises from there when opened', () => {
+    render(<Sheet initial="peek" minimized />);
+    expect(sheet()).toHaveAttribute('data-minimized');
+    fireEvent.click(handle());
+    expect(sheet()).toHaveAttribute('data-snap', 'half');
+    expect(sheet()).not.toHaveAttribute('data-minimized');
+  });
+
   it('cycles peek, half and full from its handle', () => {
     render(<Sheet initial="peek" />);
     expect(sheet()).toHaveAttribute('data-snap', 'peek');

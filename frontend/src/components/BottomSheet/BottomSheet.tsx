@@ -19,6 +19,8 @@ export interface BottomSheetProps {
   onSnapChange: (snap: SheetSnap) => void;
   /** Always visible, including in the peek state (--sheet-peek). */
   header: ReactNode;
+  /** At peek, sinks to the grip alone (--sheet-grip) until it is moved or this turns false. */
+  minimized?: boolean;
   children: ReactNode;
   className?: string;
 }
@@ -39,7 +41,15 @@ interface DragState {
  * the release animation is a compositor-only transition and no React state
  * changes per pointer move.
  */
-export function BottomSheet({ label, snap, onSnapChange, header, children, className }: BottomSheetProps) {
+export function BottomSheet({
+  label,
+  snap,
+  onSnapChange,
+  header,
+  minimized = false,
+  children,
+  className,
+}: BottomSheetProps) {
   const sheetRef = useRef<HTMLElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const safeProbeRef = useRef<HTMLSpanElement>(null);
@@ -109,7 +119,9 @@ export function BottomSheet({ label, snap, onSnapChange, header, children, class
       d.moved = true;
       sheet.dataset.dragging = '';
     }
-    const offset = Math.min(offsetFor('peek'), Math.max(0, d.startOffset + dy));
+    // A minimized sheet starts below peek; it may be pulled up from there, not snapped to peek.
+    const lowest = Math.max(offsetFor('peek'), d.startOffset);
+    const offset = Math.min(lowest, Math.max(0, d.startOffset + dy));
     sheet.style.transform = `translate3d(0, ${offset}px, 0)`;
     const dt = event.timeStamp - d.lastT;
     if (dt > 0) d.velocity = (event.clientY - d.lastY) / dt;
@@ -180,6 +192,7 @@ export function BottomSheet({ label, snap, onSnapChange, header, children, class
       ref={sheetRef}
       className={[styles.sheet, className].filter(Boolean).join(' ')}
       data-snap={snap}
+      data-minimized={minimized && snap === 'peek' ? '' : undefined}
       aria-label={label}
     >
       <span ref={safeProbeRef} className={styles.safeProbe} aria-hidden="true" />

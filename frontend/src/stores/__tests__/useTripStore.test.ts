@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { MAX_FORECAST_HOUR, type HeatmapData } from '../../lib/heatmap';
 import type { Checkpoint, PlanResponse, Route } from '../../types/api';
-import { recommendedRoute, selectPlan, useTripStore } from '../useTripStore';
+import { recommendedRoute, selectHour, selectPlan, useTripStore } from '../useTripStore';
 
 const checkpoint = (index: number): Checkpoint => ({
   index,
@@ -39,6 +40,7 @@ const PLAN: PlanResponse = {
   routes: [route('A', 2), route('B', 1, 2)],
 };
 
+const FIELD = { hours: [] } as unknown as HeatmapData;
 const store = () => useTripStore.getState();
 
 describe('useTripStore', () => {
@@ -78,5 +80,60 @@ describe('useTripStore', () => {
     store().clearPlan();
     expect(store().plan).toBeNull();
     expect(store().selectedRouteId).toBeNull();
+  });
+
+  it('tracks the weather map request', () => {
+    store().heatmapRequested();
+    expect(store().heatmapLoading).toBe(true);
+    store().heatmapFailed('Weather map is unavailable.');
+    expect(store()).toMatchObject({ heatmapLoading: false, heatmapError: 'Weather map is unavailable.' });
+    store().heatmapRequested();
+    store().heatmapLoaded(FIELD);
+    expect(store()).toMatchObject({ heatmapData: FIELD, heatmapLoading: false, heatmapError: null });
+  });
+
+  it('keeps the on/off choice but drops the field and rewinds on reset', () => {
+    store().setHeatmapOn(true);
+    store().heatmapLoaded(FIELD);
+    store().setHour(12);
+    store().resetHeatmap();
+    expect(store()).toMatchObject({ heatmapOn: true, heatmapData: null, hour: 0, playing: false });
+  });
+
+  it('stops playback when the map is hidden', () => {
+    store().setHeatmapOn(true);
+    store().setPlaying(true);
+    store().setHeatmapOn(false);
+    expect(store().playing).toBe(false);
+  });
+
+  it('clamps and rounds hand-picked hours, stopping playback', () => {
+    store().setPlaying(true);
+    store().setHour(7.6);
+    expect(selectHour(store())).toBe(8);
+    expect(store().playing).toBe(false);
+    store().setHour(99);
+    expect(store().hour).toBe(MAX_FORECAST_HOUR);
+    store().setHour(-3);
+    expect(store().hour).toBe(0);
+  });
+
+  it('plays to the last hour, stops there and starts over from the end', () => {
+    store().setHour(MAX_FORECAST_HOUR - 1);
+    store().setPlaying(true);
+    store().advanceHour();
+    expect(store()).toMatchObject({ hour: MAX_FORECAST_HOUR, playing: false });
+    store().advanceHour();
+    expect(store().hour).toBe(MAX_FORECAST_HOUR);
+
+    store().setPlaying(true);
+    expect(store()).toMatchObject({ hour: 0, playing: true });
+  });
+
+  it('keeps the chosen metric until reset', () => {
+    store().setMetric('wind');
+    expect(store().metric).toBe('wind');
+    store().reset();
+    expect(store().metric).toBe('risk');
   });
 });

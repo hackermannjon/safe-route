@@ -1,6 +1,8 @@
 .sheet {
   /* Mirrored by PEEK_CLEARANCE in the mobile view, which keeps routes clear of it. */
   --sheet-peek: 144px;
+  /* Mirrored by where the mobile view docks the forecast during playback. */
+  --sheet-grip: 32px;
   --sheet-top-gap: calc(env(safe-area-inset-top) + 80px);
 
   position: fixed;
@@ -22,6 +24,10 @@
 
 .sheet[data-snap='peek'] {
   transform: translate3d(0, calc(100% - var(--sheet-peek) - env(safe-area-inset-bottom)), 0);
+}
+
+.sheet[data-minimized] {
+  transform: translate3d(0, calc(100% - var(--sheet-grip) - env(safe-area-inset-bottom)), 0);
 }
 
 .sheet[data-snap='full'] {

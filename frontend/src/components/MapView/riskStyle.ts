@@ -20,6 +20,9 @@ export interface MapPalette {
   /** Fill of the origin ring and outline of the destination disc, and the reverse. */
   ink: string;
   surface: string;
+  /** The weather ramps run from calm to severe between these two. */
+  weatherLow: string;
+  weatherHigh: string;
   /** Anything with an unknown level, so a bad value never reads as Low. */
   unknown: string;
 }
@@ -37,6 +40,8 @@ export function readMapPalette(element: Element = document.documentElement): Map
     focus: read('--accent'),
     ink: read('--ink'),
     surface: read('--surface-1'),
+    weatherLow: read('--accent'),
+    weatherHigh: read('--risk-notravel'),
     unknown: read('--ink-faint'),
   };
 }

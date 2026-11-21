@@ -1,9 +1,20 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../../../services/api';
-import type { Checkpoint, GeocodeResult, PlanResponse, RiskLevel, Route, Weather } from '../../../types/api';
+import type {
+  Checkpoint,
+  GeocodeResult,
+  HeatmapResponse,
+  PlanResponse,
+  RiskLevel,
+  Route,
+  Weather,
+} from '../../../types/api';
 import { riskSummary, useTripPlannerViewModel, weatherSummary } from '../useTripPlannerViewModel';
 import { clearPlaceSearchCache } from '../usePlaceSearch';
+import { useForecastViewModel } from '../useForecastViewModel';
+import { useTripStore } from '../../../stores';
+import { PLAY_STEP_MS } from '../../../lib/heatmap';
 
 const CHICAGO: GeocodeResult = { label: 'Chicago, Illinois, United States', name: 'Chicago', lat: 41.88, lon: -87.63 };
 const DENVER: GeocodeResult = { label: 'Denver, Colorado, United States', name: 'Denver', lat: 39.74, lon: -104.99 };
@@ -502,6 +513,243 @@ describe('useTripPlannerViewModel', () => {
     await act(() => result.current.submit());
 
     expect(result.current.selectedCheckpoint).toBeNull();
+  });
+});
+
+// Two corridor cells; the second gets windier by 1 mph an hour.
+const HEATMAP: HeatmapResponse = {
+  departure: DEPARTURE,
+  cargo_lb: 42_000,
+  grid: { lat0: 40, lon0: -100, dlat: 0.5, dlon: 0.5, rows: 1, cols: 2 },
+  cells: [0, 1],
+  hours: Array.from({ length: 49 }, (_, h) => at(h * 3600)),
+  values: {
+    risk: { scale: 1, frames: Array.from({ length: 49 }, () => [0, 2]) },
+    wind_mph: { scale: 1, frames: Array.from({ length: 49 }, (_, h) => [5, 20 + h]) },
+    rain_in_h: { scale: 0.01, frames: Array.from({ length: 49 }, () => [0, 12]) },
+    snow_in_h: { scale: 0.01, frames: Array.from({ length: 49 }, () => [0, 0]) },
+  },
+};
+
+/** The screen's main ViewModel with the scoped forecast one, as the views compose them. */
+function useScreen() {
+  const vm = useTripPlannerViewModel();
+  const forecast = useForecastViewModel();
+  return {
+    ...vm,
+    heatmap: { ...vm.heatmap, slider: forecast.slider, metric: forecast.metric },
+    mapHeatmap: forecast.mapHeatmap,
+    truck: forecast.truck,
+  };
+}
+
+async function planned(plan: PlanResponse = PLAN) {
+  vi.spyOn(api, 'plan').mockResolvedValue(plan);
+  const hook = renderHook(() => useScreen());
+  pickBoth(hook.result);
+  await act(() => hook.result.current.submit());
+  return hook;
+}
+
+describe('useTripPlannerViewModel weather map', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+    clearPlaceSearchCache();
+    vi.spyOn(api, 'geocode').mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('is offered only once there is a plan', async () => {
+    const { result } = renderHook(() => useTripPlannerViewModel());
+    expect(result.current.heatmap.available).toBe(false);
+    expect(result.current.heatmap.status).toBe('off');
+
+    const planned_ = await planned();
+    expect(planned_.result.current.heatmap.available).toBe(true);
+    expect(planned_.result.current.mapHeatmap).toBeNull();
+    expect(planned_.result.current.truck).toBeNull();
+  });
+
+  it('fetches every hour in one request with the plan departure, cargo and routes', async () => {
+    const heatmap = vi.spyOn(api, 'heatmap').mockResolvedValue(HEATMAP);
+    const { result } = await planned();
+
+    act(() => result.current.heatmap.toggle());
+    expect(result.current.heatmap.status).toBe('loading');
+    await waitFor(() => expect(result.current.heatmap.status).toBe('ready'));
+
+    expect(heatmap).toHaveBeenCalledTimes(1);
+    expect(heatmap).toHaveBeenCalledWith(
+      {
+        departure: DEPARTURE,
+        cargo_lb: 42_000,
+        routes: PLAN.routes.map((route) => route.geometry.coordinates),
+      },
+      expect.any(AbortSignal),
+    );
+    const map = result.current.mapHeatmap;
+    expect(map).toMatchObject({ hour: 0, metric: 'risk', playing: false });
+    expect(Array.from(map!.data.frames.wind[3])).toEqual([5, 23]);
+    expect(map!.data.frames.rain[0][1]).toBeCloseTo(0.12);
+  });
+
+  it('moves through the hours and metrics without asking the server again', async () => {
+    const heatmap = vi.spyOn(api, 'heatmap').mockResolvedValue(HEATMAP);
+    const { result } = await planned();
+    act(() => result.current.heatmap.toggle());
+    await waitFor(() => expect(result.current.heatmap.status).toBe('ready'));
+
+    for (const hour of [1, 7, 18, 48, 60, -3]) act(() => result.current.heatmap.slider.onChange(hour));
+    act(() => result.current.heatmap.metric.onChange('wind'));
+    act(() => result.current.heatmap.toggle());
+    act(() => result.current.heatmap.toggle());
+
+    expect(heatmap).toHaveBeenCalledTimes(1);
+    expect(result.current.heatmap.slider.value).toBe(0);
+    expect(result.current.mapHeatmap).toMatchObject({ metric: 'wind', hour: 0 });
+  });
+
+  it('puts the truck on the selected route at the slider time, then marks it arrived', async () => {
+    vi.spyOn(api, 'heatmap').mockResolvedValue(HEATMAP);
+    const { result } = await planned();
+    act(() => result.current.heatmap.toggle());
+    await waitFor(() => expect(result.current.heatmap.status).toBe('ready'));
+
+    expect(result.current.truck).toMatchObject({ mile: 0, arrived: false, lon: -87.63, lat: 41.88 });
+    expect(result.current.heatmap.slider.status).toBe('Mile 0');
+
+    // Route A reaches its mile-500 checkpoint 27,906 s after departure, so at 6 h it is near mile 387.
+    act(() => result.current.heatmap.slider.onChange(6));
+    expect(result.current.truck!.mile).toBeCloseTo((6 * 3600 * 500) / ((56739 * 500) / 1016.6), 1);
+    expect(result.current.heatmap.slider.time).toBe('Sat 2:00 PM');
+    expect(result.current.heatmap.slider.offset).toBe('+6 h');
+    expect(result.current.heatmap.slider.valueText).toBe('Sat 2:00 PM, 6 hours after departure. Truck near mile 387.');
+    expect(result.current.heatmap.slider.arrivalHour).toBeCloseTo(56739 / 3600, 3);
+
+    // Route A arrives after 15 h 46 min; Route C, the slowest, after 17 h 24 min.
+    act(() => result.current.heatmap.slider.onChange(16));
+    expect(result.current.truck).toMatchObject({ arrived: true, mile: 1016.6, lon: -104.99, lat: 39.74 });
+    expect(result.current.heatmap.slider.status).toBe('Arrived');
+    expect(result.current.heatmap.slider.arrived).toBe(true);
+    expect(result.current.heatmap.slider.valueText).toMatch(/Truck has arrived\.$/);
+
+    act(() => result.current.selectRoute('C'));
+    expect(result.current.truck!.arrived).toBe(false);
+  });
+
+  it('plays one hour per step, stops at the last hour and starts over from there', async () => {
+    vi.spyOn(api, 'heatmap').mockResolvedValue(HEATMAP);
+    const { result } = await planned();
+    act(() => result.current.heatmap.toggle());
+    await waitFor(() => expect(result.current.heatmap.status).toBe('ready'));
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+
+    act(() => result.current.heatmap.slider.onTogglePlay());
+    expect(result.current.heatmap.slider.playing).toBe(true);
+    act(() => vi.advanceTimersByTime(PLAY_STEP_MS * 3));
+    expect(result.current.heatmap.slider.value).toBe(3);
+    expect(result.current.mapHeatmap).toMatchObject({ hour: 3, playing: true });
+
+    // Dragging the slider takes over from playback.
+    act(() => result.current.heatmap.slider.onChange(40));
+    expect(result.current.heatmap.slider.playing).toBe(false);
+    act(() => result.current.heatmap.slider.onTogglePlay());
+    act(() => vi.advanceTimersByTime(PLAY_STEP_MS * 20));
+    expect(result.current.heatmap.slider.value).toBe(48);
+    expect(result.current.heatmap.slider.playing).toBe(false);
+
+    act(() => result.current.heatmap.slider.onTogglePlay());
+    expect(result.current.heatmap.slider.value).toBe(0);
+    expect(result.current.heatmap.slider.playing).toBe(true);
+    act(() => result.current.heatmap.toggle());
+    expect(result.current.heatmap.slider.playing).toBe(false);
+  });
+
+  it('shows the server message on failure and loads on retry', async () => {
+    const heatmap = vi
+      .spyOn(api, 'heatmap')
+      .mockRejectedValueOnce(new ApiError('Weather service is unavailable.', 502))
+      .mockResolvedValueOnce(HEATMAP);
+    const { result } = await planned();
+
+    act(() => result.current.heatmap.toggle());
+    await waitFor(() => expect(result.current.heatmap.status).toBe('error'));
+    expect(result.current.heatmap.error).toBe('Weather service is unavailable.');
+    expect(result.current.mapHeatmap).toBeNull();
+
+    act(() => result.current.heatmap.retry());
+    await waitFor(() => expect(result.current.heatmap.status).toBe('ready'));
+    expect(result.current.heatmap.error).toBeNull();
+    expect(heatmap).toHaveBeenCalledTimes(2);
+  });
+
+  it('says so in plain words when the payload is malformed', async () => {
+    vi.spyOn(api, 'heatmap').mockResolvedValue({ ...HEATMAP, cells: [0, 7] });
+    const { result } = await planned();
+
+    act(() => result.current.heatmap.toggle());
+    await waitFor(() => expect(result.current.heatmap.status).toBe('error'));
+    expect(result.current.heatmap.error).toBe('The weather map could not be loaded. Try again.');
+  });
+
+  it('drops a pending map on a new plan and loads the new one, back at departure', async () => {
+    const signals: AbortSignal[] = [];
+    const heatmap = vi.spyOn(api, 'heatmap').mockImplementation((_body, signal) => {
+      signals.push(signal!);
+      return signals.length === 1 ? new Promise(() => {}) : Promise.resolve(HEATMAP);
+    });
+    const { result } = await planned();
+    act(() => result.current.heatmap.toggle());
+    act(() => result.current.heatmap.slider.onChange(12));
+
+    vi.spyOn(api, 'plan').mockResolvedValue(RANKED);
+    await act(() => result.current.submit());
+
+    expect(signals[0].aborted).toBe(true);
+    await waitFor(() => expect(result.current.heatmap.status).toBe('ready'));
+    expect(heatmap).toHaveBeenCalledTimes(2);
+    expect(result.current.heatmap.slider.value).toBe(0);
+    // The truck follows the new plan's recommended route.
+    expect(result.current.selectedRouteId).toBe('B');
+  });
+
+  it('leaves the screen ViewModel alone while the hour and the metric change', async () => {
+    vi.spyOn(api, 'heatmap').mockResolvedValue(HEATMAP);
+    vi.spyOn(api, 'plan').mockResolvedValue(PLAN);
+    let renders = 0;
+    const { result } = renderHook(() => {
+      renders += 1;
+      return useTripPlannerViewModel();
+    });
+    pickBoth(result);
+    await act(() => result.current.submit());
+    act(() => result.current.heatmap.toggle());
+    await waitFor(() => expect(result.current.heatmap.status).toBe('ready'));
+
+    const before = renders;
+    for (const hour of [1, 2, 3, 12]) act(() => useTripStore.getState().setHour(hour));
+    act(() => useTripStore.getState().setMetric('wind'));
+    expect(renders).toBe(before);
+  });
+
+  it('turns off and forgets the map when a new plan fails', async () => {
+    vi.spyOn(api, 'heatmap').mockResolvedValue(HEATMAP);
+    const { result } = await planned();
+    act(() => result.current.heatmap.toggle());
+    await waitFor(() => expect(result.current.heatmap.status).toBe('ready'));
+
+    vi.spyOn(api, 'plan').mockRejectedValue(new ApiError('The routing service did not respond.', 502));
+    await act(() => result.current.submit());
+
+    expect(result.current.heatmap.status).toBe('off');
+    expect(result.current.heatmap.available).toBe(false);
+    expect(result.current.mapHeatmap).toBeNull();
+    expect(result.current.truck).toBeNull();
   });
 });
 

@@ -52,7 +52,7 @@
   margin-left: auto;
 }
 
-/* A full sheet slides under the pill; hiding the toggle keeps its edge from poking out below. */
+/* A full sheet slides under the pill; hiding the toggles keeps their edges from poking out below. */
 .root[data-snap='full'] .tools {
   visibility: hidden;
 }
@@ -67,4 +67,25 @@
   border-radius: var(--radius-lg);
   background: var(--surface-1);
   box-shadow: var(--shadow-float);
+}
+
+/* Docked just above the collapsed sheet; raising the sheet hides it until it comes down. */
+.forecast {
+  position: absolute;
+  z-index: 6;
+  left: calc(var(--safe-left) + var(--space-2));
+  right: calc(var(--safe-right) + var(--space-2));
+  bottom: calc(144px + var(--safe-bottom) + var(--space-2));
+  transition: bottom var(--duration-base) cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* During playback the sheet sinks to its grip (--sheet-grip) and the forecast follows it down. */
+.root[data-minimized] .forecast {
+  bottom: calc(32px + var(--safe-bottom) + var(--space-2));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .forecast {
+    transition: none;
+  }
 }

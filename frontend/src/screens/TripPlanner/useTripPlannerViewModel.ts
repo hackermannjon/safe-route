@@ -11,6 +11,7 @@ import {
   formatWind,
   isMeasurable,
 } from '../../lib/format';
+import { PLAY_STEP_MS, decodeHeatmap } from '../../lib/heatmap';
 import { factorLabel, riskLabel } from '../../lib/risk';
 import { weatherCondition } from '../../lib/weatherCodes';
 import { ApiError, api, isAbortError } from '../../services/api';
@@ -38,7 +39,12 @@ import {
   zoneName,
 } from './formModel';
 import {
+  selectHasHeatmapData,
+  selectHeatmapError,
+  selectHeatmapLoading,
+  selectHeatmapOn,
   selectPlan,
+  selectPlaying,
   selectSelectedCheckpoint,
   selectSelectedRouteId,
   recommendedRoute,
@@ -131,6 +137,16 @@ const NO_CHECKPOINTS: Checkpoint[] = [];
 const NO_ROUTES: Route[] = [];
 const NO_NOTICES: string[] = [];
 
+const HEATMAP_FAILED = 'The weather map could not be loaded. Try again.';
+
+export type HeatmapStatus = 'off' | 'loading' | 'ready' | 'error';
+
+/** What the heatmap request needs from a plan besides its routes. */
+interface Trip {
+  departure: string;
+  cargoLb: number;
+}
+
 /** Dry readings are left out so the precipitation that is there stands out. */
 export function weatherSummary(weather: Weather): string {
   const parts = [weatherCondition(weather.weather_code), `Wind ${formatWind(weather.wind_mph)}`];
@@ -195,7 +211,7 @@ export type PlanStatus = 'idle' | 'loading' | 'error' | 'ready';
 export interface TripPlannerOptions {
   /**
    * On a phone the form and the results sheet cover the map, so they get history entries for
-   * the Back gesture.
+   * the Back gesture, and turning the weather map on lowers the sheet to make room for it.
    */
   layout?: 'mobile' | 'desktop';
 }
@@ -213,6 +229,7 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
   const [planning, setPlanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestRef = useRef<AbortController | null>(null);
+  const heatmapRequestRef = useRef<AbortController | null>(null);
   const lastRequest = useRef<PlanRequest | null>(null);
   /** The request behind the plan on screen, which the trip line describes. */
   const [planned, setPlanned] = useState<PlanRequest | null>(null);
@@ -222,14 +239,62 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
   const plan = useTripStore(selectPlan);
   const selectedRouteId = useTripStore(selectSelectedRouteId);
   const selectedCheckpoint = useTripStore(selectSelectedCheckpoint);
+  const heatmapOn = useTripStore(selectHeatmapOn);
+  const hasHeatmapData = useTripStore(selectHasHeatmapData);
+  const heatmapLoading = useTripStore(selectHeatmapLoading);
+  const heatmapError = useTripStore(selectHeatmapError);
+  // Only to run the playback clock: the hour itself is read by useForecastViewModel, so a
+  // playback step does not re-render the screen.
+  const playing = useTripStore(selectPlaying);
   // getState() returns a new object after every update, but the actions in it never change;
   // reading them once keeps every callback below stable.
   const store = useMemo(() => useTripStore.getState(), []);
 
   const routes = plan?.routes ?? NO_ROUTES;
   const notices = plan?.notices ?? NO_NOTICES;
+  const trip = useMemo<Trip | null>(
+    () => (plan ? { departure: plan.departure, cargoLb: plan.cargo_lb } : null),
+    [plan],
+  );
 
-  useEffect(() => () => requestRef.current?.abort(), []);
+  useEffect(
+    () => () => {
+      requestRef.current?.abort();
+      heatmapRequestRef.current?.abort();
+    },
+    [],
+  );
+
+  // One request per plan covers all 49 hours, so moving the slider never touches the network.
+  const loadHeatmap = useCallback(
+    async (planRoutes: readonly Route[], planTrip: Trip) => {
+      heatmapRequestRef.current?.abort();
+      const controller = new AbortController();
+      heatmapRequestRef.current = controller;
+      store.heatmapRequested();
+      try {
+        const lines = planRoutes.map((route) => route.geometry.coordinates);
+        const payload = await api.heatmap(
+          { departure: planTrip.departure, cargo_lb: planTrip.cargoLb, routes: lines },
+          controller.signal,
+        );
+        if (controller.signal.aborted) return;
+        store.heatmapLoaded(decodeHeatmap(payload, lines));
+      } catch (err) {
+        if (isAbortError(err) || controller.signal.aborted) return;
+        store.heatmapFailed(err instanceof ApiError ? err.message : HEATMAP_FAILED);
+      } finally {
+        if (heatmapRequestRef.current === controller) heatmapRequestRef.current = null;
+      }
+    },
+    [store],
+  );
+
+  const resetHeatmap = useCallback(() => {
+    heatmapRequestRef.current?.abort();
+    heatmapRequestRef.current = null;
+    store.resetHeatmap();
+  }, [store]);
 
   const originSearch = usePlaceSearch(inputs.origin.query, inputs.origin.selected?.label ?? null);
   const destinationSearch = usePlaceSearch(inputs.destination.query, inputs.destination.selected?.label ?? null);
@@ -279,8 +344,13 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
         const next = await api.plan(request, controller.signal);
         // A newer request may have started while this response was being read.
         if (controller.signal.aborted) return;
+        resetHeatmap();
         store.setPlan(next);
         setPlanned(request);
+        // A driver who had the weather map on keeps it on for the new plan.
+        if (useTripStore.getState().heatmapOn && next.routes.length) {
+          void loadHeatmap(next.routes, { departure: next.departure, cargoLb: next.cargo_lb });
+        }
         if (!next.routes.length) setError('No route was found for this trip.');
       } catch (err) {
         if (isAbortError(err)) return;
@@ -294,7 +364,9 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
         } else {
           setError(message);
         }
+        resetHeatmap();
         store.clearPlan();
+        store.setHeatmapOn(false);
         setPlanned(null);
       } finally {
         if (requestRef.current === controller) {
@@ -303,7 +375,7 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
         }
       }
     },
-    [store],
+    [loadHeatmap, resetHeatmap, store],
   );
 
   const submit = useCallback(
@@ -374,7 +446,46 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
     [checkpoints, store],
   );
   const clearCheckpoint = useCallback(() => store.selectCheckpoint(null), [store]);
-  const selectedRouteLabel = routes.find((route) => route.id === selectedRouteId)?.label ?? '';
+  const selectedRoute = routes.find((route) => route.id === selectedRouteId) ?? null;
+  const selectedRouteLabel = selectedRoute?.label ?? '';
+
+  const toggleHeatmap = useCallback(() => {
+    if (heatmapOn) {
+      store.setHeatmapOn(false);
+      // A half-loaded map is not worth finishing once hidden; turning it back on asks again.
+      if (heatmapRequestRef.current) {
+        heatmapRequestRef.current.abort();
+        heatmapRequestRef.current = null;
+        store.heatmapFailed('');
+      }
+      return;
+    }
+    if (!trip || routes.length === 0) return;
+    store.setHeatmapOn(true);
+    // The forecast controls dock above the sheet on a phone; lowered, it leaves the map in view.
+    if (mobile) setSheetSnap('peek');
+    if (!useTripStore.getState().heatmapData) void loadHeatmap(routes, trip);
+  }, [heatmapOn, trip, routes, loadHeatmap, store, mobile]);
+
+  const retryHeatmap = useCallback(() => {
+    if (trip && routes.length) void loadHeatmap(routes, trip);
+  }, [trip, routes, loadHeatmap]);
+
+  useEffect(() => {
+    if (!playing) return;
+    const timer = window.setInterval(() => store.advanceHour(), PLAY_STEP_MS);
+    return () => window.clearInterval(timer);
+  }, [playing, store]);
+
+  const heatmapStatus: HeatmapStatus = !heatmapOn
+    ? 'off'
+    : heatmapLoading
+      ? 'loading'
+      : heatmapError
+        ? 'error'
+        : hasHeatmapData
+          ? 'ready'
+          : 'loading';
   // Picker bounds and zone name only guide the input; they need not tick with the clock.
   const [openedAt] = useState(() => new Date());
   const bounds = useMemo(() => departureBounds(openedAt), [openedAt]);
@@ -500,6 +611,16 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
     closeForm,
     sheetSnap,
     setSheetSnap,
+    heatmap: {
+      /** The weather map needs a plan to draw a corridor around. */
+      available: routes.length > 0,
+      status: heatmapStatus,
+      error: heatmapError,
+      toggle: toggleHeatmap,
+      retry: retryHeatmap,
+      /** Playback lowers the phone's sheet to its grip, so the map has the room. */
+      playing,
+    },
   };
 }
 

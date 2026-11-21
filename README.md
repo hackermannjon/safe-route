@@ -4,7 +4,8 @@ Weather-aware route planning for truck drivers. Enter an origin, a destination, 
 the cargo weight and how often to check the weather. Safe Route returns up to three truck routes
 and forecasts the weather at checkpoints along each one for the hour the truck will be there. It
 rates every checkpoint from Low to No Travel and recommends the route with the least exposure to
-bad conditions.
+bad conditions. A corridor weather map with a 0–48 h slider shows how conditions move around the
+trip while a truck marker follows the selected route.
 
 ## Run locally
 

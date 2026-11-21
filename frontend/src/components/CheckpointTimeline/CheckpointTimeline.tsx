@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import type { RiskLevel } from '../../types/api';
 import { RiskGlyph } from '../RiskGlyph';
@@ -27,8 +27,16 @@ export interface CheckpointTimelineProps {
   label?: string;
 }
 
-/** Checkpoints in driving order; pressing one shows it on the map. */
-export function CheckpointTimeline({ items, selectedIndex, onSelect, label = 'Checkpoints' }: CheckpointTimelineProps) {
+/**
+ * Checkpoints in driving order; pressing one shows it on the map. Memoised because a long trip
+ * lists over a hundred rows and the forecast slider re-renders the screen on every hour.
+ */
+export const CheckpointTimeline = memo(function CheckpointTimeline({
+  items,
+  selectedIndex,
+  onSelect,
+  label = 'Checkpoints',
+}: CheckpointTimelineProps) {
   const reducedMotion = useReducedMotion();
   const rows = useRef(new Map<number, HTMLButtonElement>());
 
@@ -70,4 +78,4 @@ export function CheckpointTimeline({ items, selectedIndex, onSelect, label = 'Ch
       ))}
     </ol>
   );
-}
+});

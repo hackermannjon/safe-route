@@ -42,6 +42,8 @@ describe('readMapPalette', () => {
       focus: '#5b8cff',
       ink: '#ecf3f5',
       surface: '#0c2530',
+      weatherLow: '#5b8cff',
+      weatherHigh: '#d65bd0',
     });
   });
 
