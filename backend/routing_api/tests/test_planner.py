@@ -18,6 +18,7 @@ from routing_api.services.types import (
 DEPARTURE = datetime(2026, 11, 21, 14, tzinfo=UTC)
 ORIGIN = Place(40.0, -100.0, "Origin")
 DESTINATION = Place(40.0, -98.0, "Destination")
+CLEAR_REASON = "The only route with no miles at High risk or worse."
 
 
 def straight_route(lat, seconds_per_mile):
@@ -213,6 +214,35 @@ def test_segments_are_continuous_and_end_at_the_checkpoints(one_route):
         assert length == pytest.approx(end - start, abs=0.1)
     for a, b in zip(features, features[1:], strict=False):
         assert a["geometry"]["coordinates"][-1] == b["geometry"]["coordinates"][0]
+
+
+def test_a_slower_route_is_recommended_when_the_fastest_is_riskier(monkeypatch):
+    # Rain at 0.3 in/h (High) along latitude 40, the fastest route; latitude 41 stays dry.
+    monkeypatch.setattr(
+        weather,
+        "fetch_for_points",
+        lambda samples: [
+            WeatherSample(10, 15, 0.3 if lat < 40.5 else 0, 0) for lat, _, _ in samples
+        ],
+    )
+    result = plan(spacing_mi=25)
+    fast, slow = result["routes"]
+    assert (fast["id"], slow["id"]) == ("A", "B")
+    assert fast["duration_s"] < slow["duration_s"]
+    assert result["recommended_route_id"] == "B"
+    assert (slow["rank"], slow["recommended"]) == (1, True)
+    assert (fast["rank"], fast["recommended"]) == (2, False)
+    high = fast["risk"]["miles"]["HIGH"]
+    assert fast["rank_reason"] == f"{high:g} more miles in High risk than Route B."
+    assert slow["rank_reason"] == CLEAR_REASON
+
+
+def test_a_single_route_plan_recommends_it(one_route):
+    result = plan(spacing_mi=25)
+    (route,) = result["routes"]
+    assert result["recommended_route_id"] == route["id"] == "A"
+    assert (route["rank"], route["recommended"]) == (1, True)
+    assert route["rank_reason"] == "The only route available for this trip."
 
 
 def with_source(route, source):

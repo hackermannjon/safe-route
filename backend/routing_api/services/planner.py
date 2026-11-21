@@ -1,4 +1,5 @@
-"""Trip planning (routes -> checkpoints -> weather at ETA -> risk) and the plan response shape."""
+"""Trip planning (routes -> checkpoints -> weather at ETA -> risk -> ranking) and the plan
+response shape."""
 
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ from datetime import UTC, datetime
 from . import checkpoints, routing, weather
 from .errors import ValidationProblem
 from .geo import interpolate_along, simplify, to_lonlat
+from .recommend import Ranking, RouteScore, rank_routes
 from .risk import assess
 from .types import (
     Checkpoint,
@@ -68,18 +70,38 @@ def plan_trip(
             [AssessedCheckpoint(c, w, assess(w, cargo_lb)) for c, w in zip(cps, chunk, strict=True)]
         )
     spans = [merge_spans(points) for points in assessed]
+    # Ids stay in fastest-first order: they name routes, the rank orders them.
+    ids = string.ascii_uppercase[: len(candidates)]
+    rankings = {
+        r.route_id: r
+        for r in rank_routes(
+            [score_route(i, route, s) for i, route, s in zip(ids, candidates, spans, strict=True)]
+        )
+    }
+    recommended = next(r.route_id for r in rankings.values() if r.recommended)
     return {
         "departure": iso(departure),
         "cargo_lb": cargo_lb,
         "spacing_mi": spacing_mi,
+        "recommended_route_id": recommended,
         "notices": _notices(candidates, spans),
         "routes": [
-            route_payload(route_id, route, points, route_spans)
+            route_payload(route_id, route, points, route_spans, rankings[route_id])
             for route_id, route, points, route_spans in zip(
-                string.ascii_uppercase, candidates, assessed, spans, strict=False
+                ids, candidates, assessed, spans, strict=True
             )
         ],
     }
+
+
+def score_route(route_id: str, route: RouteCandidate, spans: list[Span]) -> RouteScore:
+    return RouteScore(
+        route_id=route_id,
+        label=f"Route {route_id}",
+        miles=miles_by_level(spans),
+        avg_risk=average_risk(spans),
+        duration_s=route.duration_s,
+    )
 
 
 def merge_spans(points: list[AssessedCheckpoint]) -> list[Span]:
@@ -114,12 +136,19 @@ def average_risk(spans: list[Span]) -> float:
 
 
 def route_payload(
-    route_id: str, route: RouteCandidate, points: list[AssessedCheckpoint], spans: list[Span]
+    route_id: str,
+    route: RouteCandidate,
+    points: list[AssessedCheckpoint],
+    spans: list[Span],
+    ranking: Ranking,
 ) -> dict:
     tolerance = _tolerance_for(route.points)
     return {
         "id": route_id,
         "label": f"Route {route_id}",
+        "rank": ranking.rank,
+        "recommended": ranking.recommended,
+        "rank_reason": ranking.reason,
         "via": route.via,
         "distance_mi": round(route.distance_mi, 1),
         "duration_s": round(route.duration_s),

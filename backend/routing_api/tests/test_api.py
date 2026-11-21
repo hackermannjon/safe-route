@@ -102,6 +102,18 @@ def test_plan_returns_routes_fastest_first_with_light_geometry(client, monkeypat
     assert payload["notices"] == ["ETAs assume continuous driving and do not include rest breaks."]
     assert [r["id"] for r in payload["routes"]] == ["A", "B", "C"]
     assert [r["label"] for r in payload["routes"]] == ["Route A", "Route B", "Route C"]
+    # Calm everywhere, so time alone ranks them and the ids, fastest first, match the ranks.
+    assert payload["recommended_route_id"] == "A"
+    assert [(r["rank"], r["recommended"]) for r in payload["routes"]] == [
+        (1, True),
+        (2, False),
+        (3, False),
+    ]
+    assert [r["rank_reason"] for r in payload["routes"]] == [
+        "Same risk as the other routes and the fastest, 50 min ahead of Route B.",
+        "Same risk as Route A but 50 min longer.",
+        "Same risk as Route A but 1 h 40 min longer.",
+    ]
     first, second, _ = payload["routes"]
     assert first["via"] == ["I-88", "I-80", "I-76"]
     assert first["distance_mi"] == 1016.4
