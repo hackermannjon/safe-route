@@ -8,6 +8,8 @@ from rest_framework import serializers
 from .services.geo import haversine_mi
 
 SPACING_CHOICES = (10, 25, 50)
+# The US federal gross weight limit; no legal load on a tractor-trailer can weigh more.
+MAX_CARGO_LB = 80_000
 # Departures slightly in the past are allowed so a driver can plan a trip already under way.
 DEPARTURE_GRACE = timedelta(hours=1)
 # Weather forecasts are dependable for about a week; beyond that the plan would be guesswork.
@@ -34,6 +36,20 @@ def departure_field() -> serializers.DateTimeField:
     )
 
 
+def cargo_field() -> NumberField:
+    return NumberField(
+        min_value=0,
+        max_value=MAX_CARGO_LB,
+        error_messages={
+            "required": "Enter the cargo weight.",
+            "null": "Enter the cargo weight.",
+            "invalid": "Cargo weight must be a number.",
+            "min_value": "Cargo weight cannot be negative.",
+            "max_value": "Cargo weight cannot exceed 80,000 lb.",
+        },
+    )
+
+
 def check_departure(value):
     now = timezone.now()
     if value < now - DEPARTURE_GRACE:
@@ -43,6 +59,11 @@ def check_departure(value):
             "Departure must be within the next 7 days (weather forecast range)."
         )
     return value
+
+
+def whole_pounds(value: float) -> float:
+    # Whole pounds read back as ints, so responses echo 42000 rather than 42000.0.
+    return int(value) if value.is_integer() else value
 
 
 class PlaceSerializer(serializers.Serializer):
@@ -77,6 +98,7 @@ class PlanRequestSerializer(serializers.Serializer):
         error_messages={"required": "Choose a destination.", "null": "Choose a destination."}
     )
     departure = departure_field()
+    cargo_lb = cargo_field()
     spacing_mi = serializers.ChoiceField(
         choices=SPACING_CHOICES,
         error_messages={
@@ -88,6 +110,9 @@ class PlanRequestSerializer(serializers.Serializer):
 
     def validate_departure(self, value):
         return check_departure(value)
+
+    def validate_cargo_lb(self, value):
+        return whole_pounds(value)
 
     def validate_spacing_mi(self, value):
         # ChoiceField matches "25" and 25 alike; hand the service a real int.

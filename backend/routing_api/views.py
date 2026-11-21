@@ -66,5 +66,6 @@ def plan(request):
         destination=Place(**data["destination"]),
         departure=data["departure"],
         spacing_mi=data["spacing_mi"],
+        cargo_lb=data["cargo_lb"],
     )
     return Response(result)

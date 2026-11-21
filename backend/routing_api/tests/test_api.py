@@ -30,6 +30,7 @@ def body(**overrides):
         "origin": CHICAGO,
         "destination": DENVER,
         "departure": DEPARTURE.isoformat(),
+        "cargo_lb": 42_000,
         "spacing_mi": 25,
     }
     data.update(overrides)
@@ -54,9 +55,10 @@ def plan_calls(monkeypatch):
 
 def test_plan_passes_validated_input_to_the_planner(client, plan_calls):
     departure = "2026-11-21T08:00:00-06:00"
-    response = post(client, body(departure=departure, spacing_mi="10"))
+    response = post(client, body(departure=departure, spacing_mi="10", cargo_lb="42000"))
     assert response.status_code == 200
     (call,) = plan_calls
+    assert call["cargo_lb"] == 42_000 and isinstance(call["cargo_lb"], int)
     assert call["origin"] == Place(41.878, -87.629, "Chicago, IL")
     assert call["destination"] == Place(39.739, -104.99, "Denver, CO")
     assert call["spacing_mi"] == 10 and isinstance(call["spacing_mi"], int)
@@ -85,15 +87,17 @@ def test_plan_returns_routes_fastest_first_with_light_geometry(client, monkeypat
     ]
     seen = []
 
-    def fake_fetch(origin, destination, cargo_lb=0, max_routes=3):
+    def fake_fetch(origin, destination, cargo_lb, max_routes):
         seen.append((cargo_lb, max_routes))
         return routes
 
     monkeypatch.setattr(planner.routing, "fetch_routes", fake_fetch)
 
     payload = post(client, body(departure="2026-11-21T08:00:00-06:00")).json()
-    assert seen == [(0, 3)]
+    # The route search gets the cargo so the truck's gross weight can close roads to it.
+    assert seen == [(42_000, 3)]
     assert payload["departure"] == "2026-11-21T14:00:00Z"
+    assert payload["cargo_lb"] == 42_000
     assert payload["spacing_mi"] == 25
     assert payload["notices"] == ["ETAs assume continuous driving and do not include rest breaks."]
     assert [r["id"] for r in payload["routes"]] == ["A", "B", "C"]
@@ -115,6 +119,9 @@ def test_plan_returns_routes_fastest_first_with_light_geometry(client, monkeypat
         "lat": 41.9,
         "lon": -87.629,
         "eta": "2026-11-21T14:00:00Z",
+        "level": "LOW",
+        "factor": "wind",
+        "load_rule": None,
         "weather": {
             "wind_mph": 8.0,
             "gust_mph": 15.0,
@@ -125,6 +132,14 @@ def test_plan_returns_routes_fastest_first_with_light_geometry(client, monkeypat
         },
     }
     assert stops[-1]["eta"] == first["arrival"]
+    assert first["risk"] == {
+        "worst_level": "LOW",
+        "avg_risk": 0.0,
+        "miles": {"LOW": 1016.4, "MODERATE": 0, "HIGH": 0, "SEVERE": 0, "NO_TRAVEL": 0},
+    }
+    # Calm all the way: the whole route is one Low segment.
+    (segment,) = first["segments"]["features"]
+    assert segment["properties"] == {"level": "LOW", "from_mi": 0, "to_mi": 1016.4}
     # Constant speed in this fixture: 25 of 1016.44 miles take the same share of 900 minutes.
     assert stops[1]["eta"] == "2026-11-21T14:22:08Z"
     coords = second["geometry"]["coordinates"]
@@ -178,6 +193,14 @@ def test_plan_with_no_routes_is_a_400_on_destination(client, monkeypatch):
         ({"destination": None}, "destination", "Choose a destination."),
         ({"departure": "tomorrow"}, "departure", "Departure must be an ISO 8601 date and time."),
         ({"departure": None}, "departure", "Choose a departure date and time."),
+        ({"cargo_lb": -1}, "cargo_lb", "Cargo weight cannot be negative."),
+        ({"cargo_lb": 80_001}, "cargo_lb", "Cargo weight cannot exceed 80,000 lb."),
+        ({"cargo_lb": 80_000.5}, "cargo_lb", "Cargo weight cannot exceed 80,000 lb."),
+        ({"cargo_lb": "heavy"}, "cargo_lb", "Cargo weight must be a number."),
+        ({"cargo_lb": "42,000"}, "cargo_lb", "Cargo weight must be a number."),
+        ({"cargo_lb": True}, "cargo_lb", "Cargo weight must be a number."),
+        ({"cargo_lb": "nan"}, "cargo_lb", "Cargo weight must be a number."),
+        ({"cargo_lb": None}, "cargo_lb", "Enter the cargo weight."),
         ({"spacing_mi": 30}, "spacing_mi", "Checkpoint spacing must be 10, 25 or 50 miles."),
         ({"spacing_mi": None}, "spacing_mi", "Choose a checkpoint spacing."),
         (
@@ -194,7 +217,9 @@ def test_plan_validation_errors(client, plan_calls, overrides, field, message):
     assert plan_calls == []
 
 
-@pytest.mark.parametrize("missing", ["origin", "destination", "departure", "spacing_mi"])
+@pytest.mark.parametrize(
+    "missing", ["origin", "destination", "departure", "cargo_lb", "spacing_mi"]
+)
 def test_plan_required_fields(client, plan_calls, missing):
     data = body()
     del data[missing]
@@ -238,6 +263,23 @@ def test_departure_window_applies_to_the_instant_not_the_wall_clock(client, plan
 def test_every_spacing_choice_is_accepted(client, plan_calls, spacing):
     assert post(client, body(spacing_mi=spacing)).status_code == 200
     assert plan_calls[0]["spacing_mi"] == spacing
+
+
+@pytest.mark.parametrize("cargo", [0, 30_000, 80_000, 12_345.5])
+def test_cargo_range_is_inclusive(client, plan_calls, cargo):
+    assert post(client, body(cargo_lb=cargo)).status_code == 200
+    assert plan_calls[0]["cargo_lb"] == cargo
+
+
+def test_load_rule_reaches_the_response(client, monkeypatch):
+    windy = WeatherSample(wind_mph=47, gust_mph=60, rain_in_h=0, snow_in_h=0)
+    monkeypatch.setattr(weather, "fetch_for_points", lambda samples: [windy for _ in samples])
+    monkeypatch.setattr(planner.routing, "fetch_routes", lambda *a, **k: [candidate(41.9, 300, [])])
+    heavy = post(client, body(cargo_lb=30_001)).json()["routes"][0]["checkpoints"][0]
+    light = post(client, body(cargo_lb=30_000)).json()["routes"][0]["checkpoints"][0]
+    assert (heavy["level"], heavy["factor"]) == ("NO_TRAVEL", "load")
+    assert heavy["load_rule"] == "Wind 45 to under 55 mph with cargo over 30,000 lb"
+    assert (light["level"], light["factor"], light["load_rule"]) == ("SEVERE", "wind", None)
 
 
 def test_invalid_json(client, plan_calls):

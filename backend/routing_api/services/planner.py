@@ -1,14 +1,25 @@
-"""Trip planning (routes -> checkpoints -> weather at each ETA) and the plan's response shape."""
+"""Trip planning (routes -> checkpoints -> weather at ETA -> risk) and the plan response shape."""
 
 from __future__ import annotations
 
 import string
+from bisect import bisect_left, bisect_right
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from . import checkpoints, routing, weather
 from .errors import ValidationProblem
-from .geo import simplify, to_lonlat
-from .types import Checkpoint, LatLon, Place, RouteCandidate, WeatherSample
+from .geo import interpolate_along, simplify, to_lonlat
+from .risk import assess
+from .types import (
+    Checkpoint,
+    LatLon,
+    Place,
+    RiskAssessment,
+    RiskLevel,
+    RouteCandidate,
+    WeatherSample,
+)
 
 MAX_ROUTES = 3
 SIMPLIFY_TOLERANCE_DEG = 0.0005
@@ -17,36 +28,93 @@ MAX_GEOMETRY_POINTS = 1500
 CONTINUOUS_DRIVING_NOTICE_S = 8 * 3600
 
 
+@dataclass(frozen=True)
+class AssessedCheckpoint:
+    checkpoint: Checkpoint
+    weather: WeatherSample
+    risk: RiskAssessment
+
+
+@dataclass(frozen=True)
+class Span:
+    """A stretch of road with a single risk level, in route miles."""
+
+    level: RiskLevel
+    from_mi: float
+    to_mi: float
+
+
 def plan_trip(
     origin: Place,
     destination: Place,
     departure: datetime,
     spacing_mi: int,
+    cargo_lb: float = 0,
 ) -> dict:
     departure = to_utc(departure)
-    candidates = routing.fetch_routes(origin, destination, max_routes=MAX_ROUTES)
+    candidates = routing.fetch_routes(origin, destination, cargo_lb, max_routes=MAX_ROUTES)
     if not candidates:
         raise ValidationProblem(routing.NO_ROUTE, field="destination")
     candidates = sorted(candidates, key=lambda r: r.duration_s)[:MAX_ROUTES]
     stops = [checkpoints.build_checkpoints(r, spacing_mi, departure) for r in candidates]
     # One lookup for every route, so cells the routes share are fetched once.
-    samples = iter(weather.fetch_for_points([(c.lat, c.lon, c.eta) for cps in stops for c in cps]))
-    forecasts = [[next(samples) for _ in cps] for cps in stops]
+    samples = weather.fetch_for_points([(c.lat, c.lon, c.eta) for cps in stops for c in cps])
+    assessed: list[list[AssessedCheckpoint]] = []
+    offset = 0
+    for cps in stops:
+        chunk = samples[offset : offset + len(cps)]
+        offset += len(cps)
+        assessed.append(
+            [AssessedCheckpoint(c, w, assess(w, cargo_lb)) for c, w in zip(cps, chunk, strict=True)]
+        )
+    spans = [merge_spans(points) for points in assessed]
     return {
         "departure": iso(departure),
+        "cargo_lb": cargo_lb,
         "spacing_mi": spacing_mi,
-        "notices": _notices(candidates),
+        "notices": _notices(candidates, spans),
         "routes": [
-            route_payload(route_id, route, route_stops, route_weather)
-            for route_id, route, route_stops, route_weather in zip(
-                string.ascii_uppercase, candidates, stops, forecasts, strict=False
+            route_payload(route_id, route, points, route_spans)
+            for route_id, route, points, route_spans in zip(
+                string.ascii_uppercase, candidates, assessed, spans, strict=False
             )
         ],
     }
 
 
+def merge_spans(points: list[AssessedCheckpoint]) -> list[Span]:
+    """Level each stretch between checkpoints by its worse end, then merge equal neighbours.
+
+    Weather between two checkpoints is unknown, so a stretch is never reported as calmer than
+    either end of it.
+    """
+    spans: list[Span] = []
+    for a, b in zip(points, points[1:], strict=False):
+        level = max(a.risk.level, b.risk.level)
+        if spans and spans[-1].level == level:
+            spans[-1] = Span(level, spans[-1].from_mi, b.checkpoint.mile)
+        else:
+            spans.append(Span(level, a.checkpoint.mile, b.checkpoint.mile))
+    return spans
+
+
+def miles_by_level(spans: list[Span]) -> dict[RiskLevel, float]:
+    miles = dict.fromkeys(RiskLevel, 0.0)
+    for span in spans:
+        miles[span.level] += span.to_mi - span.from_mi
+    return miles
+
+
+def average_risk(spans: list[Span]) -> float:
+    """Mileage-weighted mean of the numeric level (LOW=0 .. NO_TRAVEL=4)."""
+    total = sum(s.to_mi - s.from_mi for s in spans)
+    if total <= 0:
+        return 0.0
+    return sum(int(s.level) * (s.to_mi - s.from_mi) for s in spans) / total
+
+
 def route_payload(
-    route_id: str, route: RouteCandidate, stops: list[Checkpoint], forecast: list[WeatherSample]
+    route_id: str, route: RouteCandidate, points: list[AssessedCheckpoint], spans: list[Span]
 ) -> dict:
     tolerance = _tolerance_for(route.points)
     return {
@@ -56,23 +124,61 @@ def route_payload(
         "distance_mi": round(route.distance_mi, 1),
         "duration_s": round(route.duration_s),
         # The destination checkpoint carries the same rounding, so the two always agree.
-        "arrival": iso(stops[-1].eta),
+        "arrival": iso(points[-1].checkpoint.eta),
+        "risk": {
+            "worst_level": max(p.risk.level for p in points).name,
+            "avg_risk": round(average_risk(spans), 2),
+            "miles": {level.name: round(m, 1) for level, m in miles_by_level(spans).items()},
+        },
         "geometry": {
             "type": "LineString",
             "coordinates": to_lonlat(simplify(route.points, tolerance)),
         },
-        "checkpoints": [_checkpoint_payload(c, w) for c, w in zip(stops, forecast, strict=True)],
+        "segments": {
+            "type": "FeatureCollection",
+            "features": [_segment_feature(route, span, tolerance) for span in spans],
+        },
+        "checkpoints": [_checkpoint_payload(p) for p in points],
     }
 
 
-def _checkpoint_payload(c: Checkpoint, sample: WeatherSample) -> dict:
+def _segment_feature(route: RouteCandidate, span: Span, tolerance: float) -> dict:
+    line = slice_line(route.points, route.cum_miles, span.from_mi, span.to_mi)
+    return {
+        "type": "Feature",
+        "properties": {
+            "level": span.level.name,
+            "from_mi": round(span.from_mi, 1),
+            "to_mi": round(span.to_mi, 1),
+        },
+        "geometry": {"type": "LineString", "coordinates": to_lonlat(simplify(line, tolerance))},
+    }
+
+
+def slice_line(
+    points: list[LatLon], cum_miles: list[float], start_mi: float, end_mi: float
+) -> list[LatLon]:
+    """The part of a polyline between two route miles, with interpolated ends."""
+    inner = points[bisect_right(cum_miles, start_mi) : bisect_left(cum_miles, end_mi)]
+    return [
+        interpolate_along(points, cum_miles, start_mi),
+        *inner,
+        interpolate_along(points, cum_miles, end_mi),
+    ]
+
+
+def _checkpoint_payload(point: AssessedCheckpoint) -> dict:
+    c, risk = point.checkpoint, point.risk
     return {
         "index": c.index,
         "mile": round(c.mile, 1),
         "lat": c.lat,
         "lon": c.lon,
         "eta": iso(c.eta),
-        "weather": _weather_payload(sample),
+        "level": risk.level.name,
+        "factor": risk.factor,
+        "load_rule": risk.load_rule,
+        "weather": _weather_payload(point.weather),
     }
 
 
@@ -80,7 +186,7 @@ def _weather_payload(sample: WeatherSample) -> dict:
     return {
         "wind_mph": round(sample.wind_mph, 1),
         "gust_mph": round(sample.gust_mph, 1),
-        # Three decimals, so a reading of 0.095 in/h is never shown as 0.1.
+        # Three decimals: rain thresholds sit at tenths of an inch, so 0.095 must not read as 0.1.
         "rain_in_h": round(sample.rain_in_h, 3),
         "snow_in_h": round(sample.snow_in_h, 3),
         "temp_f": None if sample.temp_f is None else round(sample.temp_f, 1),
@@ -88,7 +194,7 @@ def _weather_payload(sample: WeatherSample) -> dict:
     }
 
 
-def _notices(candidates: list[RouteCandidate]) -> list[str]:
+def _notices(candidates: list[RouteCandidate], spans: list[list[Span]]) -> list[str]:
     notices = []
     if len(candidates) == 1:
         notices.append("Only one route was available for this trip.")
@@ -111,12 +217,17 @@ def _notices(candidates: list[RouteCandidate]) -> list[str]:
         )
     if max(c.duration_s for c in candidates) > CONTINUOUS_DRIVING_NOTICE_S:
         notices.append("ETAs assume continuous driving and do not include rest breaks.")
+    if all(round(miles_by_level(s)[RiskLevel.NO_TRAVEL], 1) > 0 for s in spans):
+        notices.append(
+            "Every route crosses No Travel conditions at this departure time. "
+            "Consider a later departure."
+        )
     return notices
 
 
 def _tolerance_for(points: list[LatLon]) -> float:
     """Douglas-Peucker tolerance that keeps the line under the point budget; the map cannot
-    show more detail."""
+    show more detail, and segments reuse it so they lie exactly on the route line."""
     tolerance = SIMPLIFY_TOLERANCE_DEG
     while len(simplify(points, tolerance)) > MAX_GEOMETRY_POINTS:
         tolerance *= 2
