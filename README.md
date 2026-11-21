@@ -1,8 +1,9 @@
 # Safe Route
 
-Weather-aware route planning for truck drivers. Enter an origin, a destination, a departure time
-and how often to check the weather. Safe Route returns up to three truck routes
-and forecasts the weather at checkpoints along each one for the hour the truck will be there.
+Weather-aware route planning for truck drivers. Enter an origin, a destination, a departure time,
+the cargo weight and how often to check the weather. Safe Route returns up to three truck routes
+and forecasts the weather at checkpoints along each one for the hour the truck will be there. It
+rates every checkpoint from Low to No Travel.
 
 ## Run locally
 

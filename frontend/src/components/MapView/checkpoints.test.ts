@@ -15,6 +15,9 @@ const cp = (index: number, lon: number, lat: number): Checkpoint => ({
   lat,
   lon,
   eta: '2026-11-21T14:00:00Z',
+  level: index === 1 ? 'SEVERE' : 'LOW',
+  factor: 'wind',
+  load_rule: null,
   weather: { wind_mph: 10, gust_mph: 15, rain_in_h: 0, snow_in_h: 0, temp_f: 40, weather_code: 0 },
 });
 
@@ -22,9 +25,9 @@ describe('checkpoint map helpers', () => {
   it('marks the first and last checkpoints as the route ends', () => {
     const features = checkpointFeatures([cp(0, -87.6, 41.9), cp(1, -88, 41.8), cp(2, -88.4, 41.7)]).features;
     expect(features.map((f) => f.properties)).toEqual([
-      { index: 0, kind: 'origin' },
-      { index: 1, kind: 'stop' },
-      { index: 2, kind: 'destination' },
+      { index: 0, kind: 'origin', level: 'LOW' },
+      { index: 1, kind: 'stop', level: 'SEVERE' },
+      { index: 2, kind: 'destination', level: 'LOW' },
     ]);
     expect(features[1].geometry.coordinates).toEqual([-88, 41.8]);
     expect(checkpointFeatures([]).features).toEqual([]);
@@ -47,7 +50,7 @@ describe('checkpoint map helpers', () => {
         [118 - PICK_RADIUS_PX, 100 - PICK_RADIUS_PX],
         [118 + PICK_RADIUS_PX, 100 + PICK_RADIUS_PX],
       ],
-      { layers: [CHECKPOINT_LAYER.stops, CHECKPOINT_LAYER.ends] },
+      { layers: [CHECKPOINT_LAYER.glyphs, CHECKPOINT_LAYER.ends] },
     );
   });
 

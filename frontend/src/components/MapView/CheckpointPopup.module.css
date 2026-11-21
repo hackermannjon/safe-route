@@ -92,3 +92,39 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+.risk {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.factor {
+  color: var(--ink-muted);
+}
+
+.rule {
+  margin: 0;
+  font-weight: 600;
+}
+
+/* The reading behind the level, so the driver knows which number to watch. */
+.main dt {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.main dd {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

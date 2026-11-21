@@ -11,11 +11,23 @@ import {
   formatWind,
   isMeasurable,
 } from '../../lib/format';
+import { factorLabel, riskLabel } from '../../lib/risk';
 import { weatherCondition } from '../../lib/weatherCodes';
 import { ApiError, api, isAbortError } from '../../services/api';
-import type { Checkpoint, GeocodeResult, Place, PlanRequest, Route, SpacingMi, Weather } from '../../types/api';
+import type {
+  Checkpoint,
+  GeocodeResult,
+  Place,
+  PlanRequest,
+  RiskLevel,
+  Route,
+  SpacingMi,
+  Weather,
+} from '../../types/api';
 import {
   DEFAULT_SPACING,
+  MAX_CARGO_LB,
+  cargoError,
   SPACING_OPTIONS,
   departureBounds,
   departureError,
@@ -30,12 +42,13 @@ import { usePlaceSearch } from './usePlaceSearch';
 import { useHistoryLayers, type HistoryLayers } from './useHistoryLayers';
 
 type Endpoint = 'origin' | 'destination';
-type Field = Endpoint | 'departure' | 'spacing';
+type Field = Endpoint | 'departure' | 'cargo' | 'spacing';
 
 const SERVER_FIELDS: Record<string, Field> = {
   origin: 'origin',
   destination: 'destination',
   departure: 'departure',
+  cargo_lb: 'cargo',
   spacing_mi: 'spacing',
 };
 
@@ -64,6 +77,7 @@ export interface RouteSummary {
   /** "Arrives Sat 11:40 PM", in the driver's zone. */
   arrival: string;
   via: string;
+  risk: { level: RiskLevel; miles: Record<RiskLevel, number> };
 }
 
 function summarize(route: Route): RouteSummary {
@@ -74,6 +88,7 @@ function summarize(route: Route): RouteSummary {
     duration: formatDuration(route.duration_s),
     arrival: `Arrives ${formatEta(route.arrival)}`,
     via: route.via.length ? `via ${route.via.join(', ')}` : '',
+    risk: { level: route.risk.worst_level, miles: route.risk.miles },
   };
 }
 
@@ -90,6 +105,15 @@ export function weatherSummary(weather: Weather): string {
   return parts.filter(Boolean).join(' · ');
 }
 
+/**
+ * "High · Rain". Low leaves the factor out: with every reading calm, naming one would suggest
+ * a hazard that is not there.
+ */
+export function riskSummary(checkpoint: Pick<Checkpoint, 'level' | 'factor'>): string {
+  const label = riskLabel(checkpoint.level);
+  return checkpoint.level === 'LOW' ? label : `${label} · ${factorLabel(checkpoint.factor)}`;
+}
+
 function timelineItems(checkpoints: readonly Checkpoint[]): TimelineItem[] {
   const last = checkpoints.length - 1;
   return checkpoints.map((cp, i) => ({
@@ -97,24 +121,30 @@ function timelineItems(checkpoints: readonly Checkpoint[]): TimelineItem[] {
     place: i === 0 ? 'Start · Mile 0' : i === last ? `Arrive · ${formatMilepost(cp.mile)}` : formatMilepost(cp.mile),
     eta: formatEta(cp.eta),
     weather: weatherSummary(cp.weather),
+    level: cp.level,
+    risk: riskSummary(cp),
+    loadRule: cp.load_rule,
     kind: i === 0 ? 'origin' : i === last ? 'destination' : 'stop',
   }));
 }
 
+const grouped = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+
 /** The trip in one line, for the entry that opens the form: "Chicago → Denver". */
 export interface TripLine {
   route: string;
-  /** "Sat 8:00 AM" */
+  /** "Sat 8:00 AM · 42,000 lb" */
   details: string;
 }
 
 /** Up to the first comma: "Chicago, Illinois, United States" reads "Chicago". */
 const shortPlace = (label: string) => label.split(',')[0].trim();
 
-function tripLine(origin: string, destination: string, departureIso: string | null): TripLine {
+function tripLine(origin: string, destination: string, departureIso: string | null, cargoLb: number | null): TripLine {
+  const parts = [departureIso ? formatEta(departureIso) : '', cargoLb === null ? '' : `${grouped.format(cargoLb)} lb`];
   return {
     route: `${shortPlace(origin)} → ${shortPlace(destination)}`,
-    details: departureIso ? formatEta(departureIso) : '',
+    details: parts.filter(Boolean).join(' · '),
   };
 }
 
@@ -122,7 +152,8 @@ function tripLine(origin: string, destination: string, departureIso: string | nu
 const EXAMPLE_TRIP = {
   origin: { label: 'Chicago, Illinois, United States', name: 'Chicago', lat: 41.8755, lon: -87.6244 },
   destination: { label: 'Denver, Colorado, United States', name: 'Denver', lat: 39.7392, lon: -104.9849 },
-} satisfies { origin: GeocodeResult; destination: GeocodeResult };
+  cargoLb: 42_000,
+} satisfies { origin: GeocodeResult; destination: GeocodeResult; cargoLb: number };
 
 export type PlanStatus = 'idle' | 'loading' | 'error' | 'ready';
 
@@ -141,6 +172,7 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
     destination: EMPTY_INPUT,
   });
   const [departure, setDeparture] = useState(() => toLocalInputValue(nextWholeHour(new Date())));
+  const [cargo, setCargo] = useState<number | null>(null);
   const [spacing, setSpacing] = useState<SpacingMi>(DEFAULT_SPACING);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<Field, string>>>({});
   const [planning, setPlanning] = useState(false);
@@ -184,6 +216,13 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
   const changeDeparture = useCallback((value: string) => {
     setDeparture(value);
     setFieldErrors((prev) => ({ ...prev, departure: undefined }));
+  }, []);
+
+  const changeCargo = useCallback((value: number | null) => {
+    setCargo(value);
+    // Too heavy is wrong however the typing ends, so say it now; an empty field can wait for submit.
+    const tooHeavy = value !== null && value > MAX_CARGO_LB;
+    setFieldErrors((prev) => ({ ...prev, cargo: tooHeavy ? (cargoError(value) ?? undefined) : undefined }));
   }, []);
 
   const changeSpacing = useCallback((value: SpacingMi) => {
@@ -241,18 +280,22 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
       if (!destination.selected) problems.destination = 'Pick a destination from the list.';
       const departureProblem = departureError(departure, new Date());
       if (departureProblem) problems.departure = departureProblem;
+      const cargoProblem = cargoError(cargo);
+      if (cargoProblem) problems.cargo = cargoProblem;
       setFieldErrors(problems);
       const departureIso = localInputToIso(departure);
       if (!origin.selected || !destination.selected || departureProblem || !departureIso) return;
+      if (cargoProblem || cargo === null) return;
 
       await runPlan({
         origin: toPlace(origin.selected),
         destination: toPlace(destination.selected),
         departure: departureIso,
+        cargo_lb: cargo,
         spacing_mi: spacing,
       });
     },
-    [inputs, departure, spacing, runPlan],
+    [inputs, departure, cargo, spacing, runPlan],
   );
 
   /** Sends the last request again, for failures the form cannot fix (timeouts, upstream errors). */
@@ -269,6 +312,7 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
       origin: { query: EXAMPLE_TRIP.origin.label, selected: EXAMPLE_TRIP.origin },
       destination: { query: EXAMPLE_TRIP.destination.label, selected: EXAMPLE_TRIP.destination },
     });
+    setCargo(EXAMPLE_TRIP.cargoLb);
     setFieldErrors({});
     setFormOpen(true);
   }, []);
@@ -303,11 +347,11 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
 
   // On screen it names the plan that was made, not edits since; before one, it previews the form.
   const line = useMemo<TripLine | null>(() => {
-    if (planned) return tripLine(planned.origin.label, planned.destination.label, planned.departure);
+    if (planned) return tripLine(planned.origin.label, planned.destination.label, planned.departure, planned.cargo_lb);
     const { origin, destination } = inputs;
     if (!origin.selected || !destination.selected) return null;
-    return tripLine(origin.selected.label, destination.selected.label, localInputToIso(departure));
-  }, [planned, inputs, departure]);
+    return tripLine(origin.selected.label, destination.selected.label, localInputToIso(departure), cargo);
+  }, [planned, inputs, departure, cargo]);
 
   const onHistoryPop = useCallback(({ form, results }: HistoryLayers) => {
     setFormOpen(form);
@@ -365,6 +409,14 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
       error: fieldErrors.departure,
       onChange: changeDeparture,
     },
+    cargo: {
+      value: cargo,
+      unit: 'lb',
+      placeholder: 'e.g. 42,000',
+      hint: 'Load only, without the truck: 0 to 80,000 lb',
+      error: fieldErrors.cargo,
+      onChange: changeCargo,
+    },
     spacing: {
       value: spacing,
       options: SPACING_OPTIONS,
@@ -379,6 +431,8 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
     selectedSummary: summaries.find((route) => route.id === selectedRouteId) ?? null,
     routesHeading: summaries.length === 1 ? '1 route' : `${summaries.length} routes`,
     notices,
+    /** The map legend is for coloured routes, so it waits for a plan. */
+    showLegend: routes.length > 0,
     selectedRouteId,
     selectRoute,
     /** The selected route's checkpoints, for the map. */

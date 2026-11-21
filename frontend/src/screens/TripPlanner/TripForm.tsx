@@ -1,5 +1,6 @@
 import { Button } from '../../components/Button';
 import { DateTimeField } from '../../components/DateTimeField';
+import { NumberField } from '../../components/NumberField';
 import { PlaceField } from '../../components/PlaceField';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import type { TripPlannerViewModel } from './useTripPlannerViewModel';
@@ -17,6 +18,7 @@ export function TripForm({ vm, onCancel }: TripFormProps) {
       <PlaceField label="From" placeholder="City or address" {...vm.origin} />
       <PlaceField label="To" placeholder="City or address" {...vm.destination} />
       <DateTimeField label="Departure" {...vm.departure} />
+      <NumberField label="Cargo weight" {...vm.cargo} />
       <SegmentedControl label="Checkpoint every" {...vm.spacing} />
       <div className={styles.actions}>
         <Button type="submit" block loading={vm.planning} loadingLabel="Finding routes">

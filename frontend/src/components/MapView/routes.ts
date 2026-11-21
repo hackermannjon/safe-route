@@ -1,17 +1,19 @@
 import type { FilterSpecification, GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl';
-import type { Route } from '../../types/api';
-import type { MapPalette } from './mapPalette';
+import type { Route, SegmentProperties } from '../../types/api';
+import { riskColorExpression, type MapPalette } from './riskStyle';
 
 // All candidate routes live in one source; selection only swaps layer filters, so a
 // click never re-uploads geometry.
 
 const SOURCE = 'routes';
+/** Only the selected route's risk segments; the other routes stay a muted grey. */
+const RISK_SOURCE = 'route-risk';
 
 export const ROUTE_LAYER = {
   altCasing: 'route-alt-casing',
   alt: 'route-alt',
   selectedCasing: 'route-selected-casing',
-  selected: 'route-selected',
+  risk: 'route-risk',
   hit: 'route-hit',
 } as const;
 
@@ -19,6 +21,7 @@ export const ROUTE_LAYER = {
 export const HIT_WIDTH_PX = 28;
 
 type LineFC = GeoJSON.FeatureCollection<GeoJSON.LineString, { routeId: string }>;
+type SegmentFC = GeoJSON.FeatureCollection<GeoJSON.LineString, SegmentProperties>;
 export type Bounds = [[number, number], [number, number]];
 
 export function routeFeatures(routes: readonly Route[]): LineFC {
@@ -27,6 +30,16 @@ export function routeFeatures(routes: readonly Route[]): LineFC {
     features: routes
       .filter((route) => route.geometry.coordinates.length >= 2)
       .map((route) => ({ type: 'Feature', properties: { routeId: route.id }, geometry: route.geometry })),
+  };
+}
+
+const NO_SEGMENTS: SegmentFC = { type: 'FeatureCollection', features: [] };
+
+export function riskSegments(route: Route | undefined): SegmentFC {
+  if (!route) return NO_SEGMENTS;
+  return {
+    type: 'FeatureCollection',
+    features: route.segments.features.filter((f) => f.geometry.coordinates.length >= 2),
   };
 }
 
@@ -58,13 +71,24 @@ const NONE: FilterSpecification = ['==', ['get', 'routeId'], ''];
 export function installRouteLayers(map: MapLibreMap, palette: MapPalette, beforeId?: string): void {
   if (map.getSource(SOURCE)) return;
   map.addSource(SOURCE, { type: 'geojson', data: routeFeatures([]) });
+  map.addSource(RISK_SOURCE, { type: 'geojson', data: NO_SEGMENTS });
   const line = (id: string, paint: Record<string, unknown>, filter: FilterSpecification = NONE) =>
     map.addLayer({ id, type: 'line', source: SOURCE, filter, layout: ROUND, paint }, beforeId);
 
   line(ROUTE_LAYER.altCasing, { 'line-color': palette.casing, 'line-width': 6 });
   line(ROUTE_LAYER.alt, { 'line-color': palette.alternative, 'line-width': 3.5 });
   line(ROUTE_LAYER.selectedCasing, { 'line-color': palette.casing, 'line-width': 9 });
-  line(ROUTE_LAYER.selected, { 'line-color': palette.selected, 'line-width': 5 });
+  // The casing shows the whole selected route; the risk colours are drawn in it, stretch by stretch.
+  map.addLayer(
+    {
+      id: ROUTE_LAYER.risk,
+      type: 'line',
+      source: RISK_SOURCE,
+      layout: ROUND,
+      paint: { 'line-color': riskColorExpression(palette.risk, palette.unknown), 'line-width': 5 },
+    },
+    beforeId,
+  );
   line(ROUTE_LAYER.hit, { 'line-color': palette.casing, 'line-width': HIT_WIDTH_PX, 'line-opacity': 0 }, [
     'has',
     'routeId',
@@ -84,7 +108,10 @@ export function setRouteSelection(map: MapLibreMap, selectedRouteId: string | nu
   map.setFilter(ROUTE_LAYER.altCasing, others);
   map.setFilter(ROUTE_LAYER.alt, others);
   map.setFilter(ROUTE_LAYER.selectedCasing, selected);
-  map.setFilter(ROUTE_LAYER.selected, selected);
+}
+
+export function setRiskSegments(map: MapLibreMap, route: Route | undefined): void {
+  map.getSource<GeoJSONSource>(RISK_SOURCE)?.setData(riskSegments(route));
 }
 
 /**

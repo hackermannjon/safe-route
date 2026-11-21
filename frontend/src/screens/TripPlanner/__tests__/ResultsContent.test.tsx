@@ -11,6 +11,7 @@ const route = (id: string): RouteListItem => ({
   duration: '2 h 10 min',
   arrival: 'Arrives Sun 7:10 AM',
   via: 'via I-40',
+  risk: { level: 'LOW', miles: { LOW: 130, MODERATE: 0, HIGH: 0, SEVERE: 0, NO_TRAVEL: 0 } },
 });
 
 const TIMELINE: TimelineItem[] = Array.from({ length: 40 }, (_, index) => ({
@@ -18,6 +19,8 @@ const TIMELINE: TimelineItem[] = Array.from({ length: 40 }, (_, index) => ({
   place: `Mile ${index * 10}`,
   eta: 'Sun 5:00 AM',
   weather: 'Clear · Wind 8 mph · 50°F',
+  level: 'LOW',
+  risk: 'Low · Wind',
   kind: index === 0 ? 'origin' : 'stop',
 }));
 

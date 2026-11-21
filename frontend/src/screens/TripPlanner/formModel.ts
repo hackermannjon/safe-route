@@ -14,6 +14,17 @@ export const SPACING_OPTIONS: ReadonlyArray<{ value: SpacingMi; label: string }>
 ];
 export const DEFAULT_SPACING: SpacingMi = 25;
 
+/** Mirrors the server: the US federal gross weight limit, so no legal load can weigh more. */
+export const MAX_CARGO_LB = 80_000;
+
+/** Same rule and wording as the server. The field only takes digits, so it is never negative. */
+export function cargoError(value: number | null): string | null {
+  if (value === null || !Number.isFinite(value)) return 'Enter the cargo weight.';
+  if (value < 0) return 'Cargo weight cannot be negative.';
+  if (value > MAX_CARGO_LB) return 'Cargo weight cannot exceed 80,000 lb.';
+  return null;
+}
+
 const pad = (n: number) => String(n).padStart(2, '0');
 
 /** `YYYY-MM-DDTHH:mm` in the browser's zone, the value format of `<input type="datetime-local">`. */

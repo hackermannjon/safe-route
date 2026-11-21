@@ -8,6 +8,9 @@ const checkpoint = (index: number): Checkpoint => ({
   lat: 41,
   lon: -87 - index,
   eta: '2026-11-21T14:00:00Z',
+  level: 'LOW',
+  factor: 'wind',
+  load_rule: null,
   weather: { wind_mph: 10, gust_mph: 15, rain_in_h: 0, snow_in_h: 0, temp_f: 40, weather_code: 0 },
 });
 
@@ -19,11 +22,14 @@ const route = (id: string, checkpoints = 3): Route => ({
   duration_s: 3600,
   arrival: '2026-11-21T15:00:00Z',
   checkpoints: Array.from({ length: checkpoints }, (_, i) => checkpoint(i)),
+  risk: { worst_level: 'LOW', avg_risk: 0, miles: { LOW: 50, MODERATE: 0, HIGH: 0, SEVERE: 0, NO_TRAVEL: 0 } },
   geometry: { type: 'LineString', coordinates: [] },
+  segments: { type: 'FeatureCollection', features: [] },
 });
 
 const PLAN: PlanResponse = {
   departure: '2026-11-21T14:00:00Z',
+  cargo_lb: 20_000,
   spacing_mi: 25,
   notices: [],
   routes: [route('A', 2), route('B')],

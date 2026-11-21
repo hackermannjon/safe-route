@@ -47,6 +47,13 @@
     var(--shadow-focus);
 }
 
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
 .label {
   font: var(--type-display-md);
 }
@@ -69,4 +76,8 @@
 .via {
   font: var(--type-caption);
   color: var(--ink-muted);
+}
+
+.bar {
+  margin-top: var(--space-1);
 }

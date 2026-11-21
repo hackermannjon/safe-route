@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { EmptyState } from '../../components/EmptyState';
-import type { MapTheme } from '../../components/MapView/MapView';
+import type { MapPadding, MapTheme } from '../../components/MapView/MapView';
+import { RiskLegend } from '../../components/RiskLegend';
 import { ThemeToggle } from '../../components/ThemeToggle';
 import { TripPill } from '../../components/TripPill';
 import { EMPTY_STATE } from './copy';
@@ -17,10 +18,15 @@ interface ViewProps {
   onToggleTheme: () => void;
 }
 
+// The panel sits beside the map, not over it; only the legend floats.
+const LEGEND_CLEARANCE = 56;
+
 export function DesktopView({ vm, theme, onToggleTheme }: ViewProps) {
   const panelRef = useRef<HTMLElement>(null);
   const formRef = useRef<HTMLDivElement>(null);
   const wasExpanded = useRef(vm.formExpanded);
+  const bottom = vm.showLegend ? LEGEND_CLEARANCE : 0;
+  const padding = useMemo<MapPadding>(() => ({ top: 0, right: 0, bottom, left: 0 }), [bottom]);
 
   // Keep keyboard focus on what replaced the control it was on: the trip line after the form
   // collapses, the first field after it opens again.
@@ -84,8 +90,10 @@ export function DesktopView({ vm, theme, onToggleTheme }: ViewProps) {
           selectedCheckpoint={vm.selectedCheckpoint}
           onSelectCheckpoint={vm.selectCheckpoint}
           onCloseCheckpoint={vm.clearCheckpoint}
+          padding={padding}
           theme={theme}
         />
+        {vm.showLegend && <RiskLegend compact className={styles.legend} />}
       </main>
     </div>
   );

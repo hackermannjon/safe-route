@@ -14,10 +14,18 @@ import {
   setCheckpointData,
   setCheckpointFocus,
 } from './checkpoints';
-import { readMapPalette, type MapPalette } from './mapPalette';
 import styles from './MapView.module.css';
 import { popupCentered, popupFit, type ScreenPoint } from './popupPlacement';
-import { ROUTE_LAYER, installRouteLayers, pickRoute, routesBounds, setRouteData, setRouteSelection } from './routes';
+import { addGlyphImages, readMapPalette, type MapPalette } from './riskStyle';
+import {
+  ROUTE_LAYER,
+  installRouteLayers,
+  pickRoute,
+  routesBounds,
+  setRiskSegments,
+  setRouteData,
+  setRouteSelection,
+} from './routes';
 
 export interface MapViewProps {
   routes: readonly Route[];
@@ -91,6 +99,7 @@ function fitRoutes(map: MapLibreMap, routes: readonly Route[], padding: MapPaddi
 /** Re-adds the plan's sources and layers; a basemap swap drops everything the app added. */
 function installLayers(map: MapLibreMap, palette: MapPalette): void {
   const firstLabel = map.getStyle().layers.find((layer) => layer.type === 'symbol')?.id;
+  addGlyphImages(map, palette);
   installRouteLayers(map, palette, firstLabel);
   installCheckpointLayers(map, palette);
 }
@@ -187,7 +196,7 @@ export function MapView({
       if (id && id !== current) select?.(id);
       else latest.current.onCloseCheckpoint?.();
     });
-    for (const layer of [ROUTE_LAYER.hit, CHECKPOINT_LAYER.stops, CHECKPOINT_LAYER.ends]) {
+    for (const layer of [ROUTE_LAYER.hit, CHECKPOINT_LAYER.glyphs, CHECKPOINT_LAYER.ends]) {
       map.on('mouseenter', layer, () => {
         map.getCanvas().style.cursor = 'pointer';
       });
@@ -254,8 +263,13 @@ export function MapView({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (map && styleVersion) setRouteSelection(map, selectedRouteId);
-  }, [selectedRouteId, styleVersion]);
+    if (!map || !styleVersion) return;
+    setRouteSelection(map, selectedRouteId);
+    setRiskSegments(
+      map,
+      routes.find((route) => route.id === selectedRouteId),
+    );
+  }, [routes, selectedRouteId, styleVersion]);
 
   useEffect(() => {
     const map = mapRef.current;

@@ -1,0 +1,17 @@
+.bar {
+  display: flex;
+  gap: 2px;
+  width: 100%;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: var(--surface-3);
+}
+
+/* flex-grow carries the miles; the floor keeps a short bad stretch from vanishing next to
+   hundreds of calm miles. */
+.part {
+  flex-basis: 0;
+  min-width: 4px;
+  height: 100%;
+}

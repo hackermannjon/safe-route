@@ -1,3 +1,6 @@
+import type { RiskLevel } from '../../types/api';
+import { RiskBadge } from '../RiskBadge';
+import { RiskBar } from '../RiskBar';
 import styles from './RouteList.module.css';
 
 export interface RouteListItem {
@@ -9,6 +12,8 @@ export interface RouteListItem {
   arrival: string;
   /** Already phrased for display, e.g. "via I-80, I-76"; empty when unknown. */
   via: string;
+  /** The worst level on the route and its miles at each level. */
+  risk: { level: RiskLevel; miles: Record<RiskLevel, number> };
 }
 
 export interface RouteListProps {
@@ -35,13 +40,17 @@ export function RouteList({ routes, selectedId, onSelect }: RouteListProps) {
               aria-pressed={selected}
               onClick={() => onSelect(route.id)}
             >
-              <span className={styles.label}>{route.label}</span>
+              <span className={styles.head}>
+                <span className={styles.label}>{route.label}</span>
+                <RiskBadge level={route.risk.level} peak />
+              </span>
               <span className={styles.figures}>
                 <span>{route.distance}</span>
                 <span>{route.duration}</span>
               </span>
               <span className={styles.arrival}>{route.arrival}</span>
               {route.via && <span className={styles.via}>{route.via}</span>}
+              <RiskBar miles={route.risk.miles} className={styles.bar} />
             </button>
           </li>
         );

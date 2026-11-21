@@ -5,6 +5,13 @@
   min-width: 0;
 }
 
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
 .title {
   display: inline-flex;
   align-items: center;

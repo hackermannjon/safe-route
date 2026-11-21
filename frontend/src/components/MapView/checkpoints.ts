@@ -1,6 +1,6 @@
-import type { FilterSpecification, GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl';
-import type { Checkpoint } from '../../types/api';
-import type { MapPalette } from './mapPalette';
+import type { ExpressionSpecification, FilterSpecification, GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl';
+import type { Checkpoint, RiskLevel } from '../../types/api';
+import { GLYPH_IMAGE_PREFIX, type MapPalette } from './riskStyle';
 
 // Only the selected route's checkpoints are on the map; a new selection replaces the data.
 
@@ -8,17 +8,17 @@ const SOURCE = 'checkpoints';
 
 export const CHECKPOINT_LAYER = {
   focus: 'checkpoint-focus',
-  stops: 'checkpoint-stops',
   ends: 'checkpoint-ends',
+  glyphs: 'checkpoint-glyphs',
 } as const;
 
-const CLICKABLE = [CHECKPOINT_LAYER.stops, CHECKPOINT_LAYER.ends];
+const CLICKABLE = [CHECKPOINT_LAYER.glyphs, CHECKPOINT_LAYER.ends];
 
 /** Half the side of the square searched around a click; a fingertip is far wider than a 4px dot. */
 export const PICK_RADIUS_PX = 12;
 
 export type CheckpointKind = 'origin' | 'stop' | 'destination';
-type PointFC = GeoJSON.FeatureCollection<GeoJSON.Point, { index: number; kind: CheckpointKind }>;
+type PointFC = GeoJSON.FeatureCollection<GeoJSON.Point, { index: number; kind: CheckpointKind; level: RiskLevel }>;
 
 export function checkpointKind(index: number, count: number): CheckpointKind {
   if (index === 0) return 'origin';
@@ -30,11 +30,13 @@ export function checkpointFeatures(checkpoints: readonly Checkpoint[]): PointFC 
     type: 'FeatureCollection',
     features: checkpoints.map((cp, i) => ({
       type: 'Feature',
-      properties: { index: cp.index, kind: checkpointKind(i, checkpoints.length) },
+      properties: { index: cp.index, kind: checkpointKind(i, checkpoints.length), level: cp.level },
       geometry: { type: 'Point', coordinates: [cp.lon, cp.lat] },
     })),
   };
 }
+
+const IS_STOP: ExpressionSpecification = ['==', ['get', 'kind'], 'stop'];
 
 const focusFilter = (index: number | null): FilterSpecification => ['==', ['get', 'index'], index ?? -1];
 
@@ -55,30 +57,42 @@ export function installCheckpointLayers(map: MapLibreMap, palette: MapPalette): 
       'circle-stroke-width': 2,
     },
   });
-  map.addLayer({
-    id: CHECKPOINT_LAYER.stops,
-    type: 'circle',
-    source: SOURCE,
-    filter: ['==', ['get', 'kind'], 'stop'],
-    // Small at country scale, where 10 mi is a few pixels and full-size rings would merge.
-    paint: {
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 1.5, 6, 3, 9, 5],
-      'circle-color': palette.surface,
-      'circle-stroke-color': palette.selected,
-      'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 3, 1, 6, 2],
-    },
-  });
-  // Origin: hollow ring; destination: solid disc. They differ in shape, not just colour.
+  // Origin: hollow ring; destination: solid disc. They frame the level glyph drawn on top.
   map.addLayer({
     id: CHECKPOINT_LAYER.ends,
     type: 'circle',
     source: SOURCE,
     filter: ['!=', ['get', 'kind'], 'stop'],
     paint: {
-      'circle-radius': 7,
+      'circle-radius': 11,
       'circle-color': ['match', ['get', 'kind'], 'origin', palette.surface, palette.ink],
       'circle-stroke-color': ['match', ['get', 'kind'], 'origin', palette.ink, palette.surface],
-      'circle-stroke-width': ['match', ['get', 'kind'], 'origin', 3.5, 2.5],
+      'circle-stroke-width': ['match', ['get', 'kind'], 'origin', 3, 2],
+    },
+  });
+  // Every checkpoint, ends included, shows its level as a shape, so the map reads without colour.
+  map.addLayer({
+    id: CHECKPOINT_LAYER.glyphs,
+    type: 'symbol',
+    source: SOURCE,
+    layout: {
+      'icon-image': ['concat', GLYPH_IMAGE_PREFIX, ['get', 'level']],
+      // Small at country scale, where 10 mi is a few pixels and full-size glyphs would merge.
+      'icon-size': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        3,
+        ['case', IS_STOP, 0.45, 0.8],
+        6,
+        ['case', IS_STOP, 0.7, 0.8],
+        9,
+        ['case', IS_STOP, 1, 0.8],
+      ],
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+      // Ends on top of the stops around them.
+      'symbol-sort-key': ['match', ['get', 'kind'], 'stop', 0, 1],
     },
   });
 }

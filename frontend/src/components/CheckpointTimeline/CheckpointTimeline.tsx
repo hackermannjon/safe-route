@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
+import type { RiskLevel } from '../../types/api';
+import { RiskGlyph } from '../RiskGlyph';
 import styles from './CheckpointTimeline.module.css';
 
 export interface TimelineItem {
@@ -10,6 +12,11 @@ export interface TimelineItem {
   eta: string;
   /** Forecast at the ETA in a few words, e.g. "Light snow · Wind 12 mph · Snow 0.05 in/h · 31°F". */
   weather: string;
+  level: RiskLevel;
+  /** The level in words with what set it, e.g. "High · Rain". */
+  risk: string;
+  /** The cargo rule that raised the level, when one did. */
+  loadRule?: string | null;
   kind: 'origin' | 'stop' | 'destination';
 }
 
@@ -48,10 +55,16 @@ export function CheckpointTimeline({ items, selectedIndex, onSelect, label = 'Ch
             aria-pressed={item.index === selectedIndex}
             onClick={() => onSelect(item.index)}
           >
-            <span className={styles.dot} aria-hidden="true" />
+            <span className={styles.dot}>
+              <RiskGlyph level={item.level} size={14} />
+            </span>
             <span className={styles.place}>{item.place}</span>
             <span className={styles.eta}>{item.eta}</span>
+            <span className={styles.risk} data-level={item.level}>
+              {item.risk}
+            </span>
             <span className={styles.weather}>{item.weather}</span>
+            {item.loadRule && <span className={styles.rule}>Load rule: {item.loadRule}</span>}
           </button>
         </li>
       ))}

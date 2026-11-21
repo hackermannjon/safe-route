@@ -10,11 +10,19 @@ export interface GeocodeResult extends Place {
 
 export type SpacingMi = 10 | 25 | 50;
 
+/** Best to worst. The API classifies; the client only displays. */
+export type RiskLevel = 'LOW' | 'MODERATE' | 'HIGH' | 'SEVERE' | 'NO_TRAVEL';
+
+/** What set a checkpoint's level; "load" means a cargo weight rule raised it. */
+export type RiskFactor = 'wind' | 'rain' | 'snow' | 'load';
+
 export interface PlanRequest {
   origin: Place;
   destination: Place;
   /** ISO 8601 with the driver's UTC offset, e.g. "2026-11-21T08:00:00-06:00". */
   departure: string;
+  /** 0 to 80,000 lb. */
+  cargo_lb: number;
   spacing_mi: SpacingMi;
 }
 
@@ -40,7 +48,25 @@ export interface Checkpoint {
   lon: number;
   /** When the truck gets there, UTC ISO. */
   eta: string;
+  level: RiskLevel;
+  factor: RiskFactor;
+  /** The cargo rule that raised the level, e.g. "Wind 45 to under 55 mph with cargo over 30,000 lb". */
+  load_rule: string | null;
   weather: Weather;
+}
+
+export interface RouteRisk {
+  /** The worst checkpoint level on the route. */
+  worst_level: RiskLevel;
+  /** Mileage-weighted mean level, LOW = 0 to NO_TRAVEL = 4. */
+  avg_risk: number;
+  miles: Record<RiskLevel, number>;
+}
+
+export interface SegmentProperties {
+  level: RiskLevel;
+  from_mi: number;
+  to_mi: number;
 }
 
 export interface Route {
@@ -53,7 +79,10 @@ export interface Route {
   duration_s: number;
   /** UTC ISO, e.g. "2026-11-22T05:44:37Z". */
   arrival: string;
+  risk: RouteRisk;
   geometry: GeoJSON.LineString;
+  /** Stretches of one level each, cut from `geometry`; a stretch takes the worse of its two ends. */
+  segments: GeoJSON.FeatureCollection<GeoJSON.LineString, SegmentProperties>;
   /** Origin, every `spacing_mi` miles, and destination. */
   checkpoints: Checkpoint[];
 }
@@ -61,6 +90,7 @@ export interface Route {
 export interface PlanResponse {
   /** The requested departure, normalized to UTC. */
   departure: string;
+  cargo_lb: number;
   spacing_mi: SpacingMi;
   /** Up to three distinct routes. */
   routes: Route[];

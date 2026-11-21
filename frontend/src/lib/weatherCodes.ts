@@ -1,5 +1,5 @@
 // Display names for the WMO weather interpretation codes Open-Meteo returns (WMO 4677, the
-// subset Open-Meteo documents). Display only.
+// subset Open-Meteo documents). Display only: risk levels come from the measured amounts.
 const CONDITIONS: Readonly<Record<number, string>> = {
   0: 'Clear',
   1: 'Mostly clear',

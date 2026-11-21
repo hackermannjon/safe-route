@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Route } from '../../types/api';
+import { riskColorExpression } from './riskStyle';
 import type { Map as MapLibreMap } from 'maplibre-gl';
-import { ROUTE_LAYER, pickRoute, routeFeatures, routesBounds, setRouteSelection } from './routes';
+import { ROUTE_LAYER, pickRoute, riskSegments, routeFeatures, routesBounds, setRouteSelection } from './routes';
 
 function route(id: string, coordinates: GeoJSON.Position[]): Route {
   return {
@@ -12,7 +13,18 @@ function route(id: string, coordinates: GeoJSON.Position[]): Route {
     duration_s: 1,
     arrival: '2026-11-21T14:00:01Z',
     checkpoints: [],
+    risk: { worst_level: 'LOW', avg_risk: 0, miles: { LOW: 1, MODERATE: 0, HIGH: 0, SEVERE: 0, NO_TRAVEL: 0 } },
     geometry: { type: 'LineString', coordinates },
+    segments: {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          properties: { level: 'LOW', from_mi: 0, to_mi: 1 },
+          geometry: { type: 'LineString', coordinates },
+        },
+      ],
+    },
   };
 }
 
@@ -57,6 +69,44 @@ describe('route map helpers', () => {
     expect(pickRoute(mapHitting('A', 'B'), { x: 0, y: 0 }, 'B')).toBe('B');
     expect(pickRoute(mapHitting(), { x: 0, y: 0 }, 'B')).toBeNull();
   });
+
+  it('draws the risk segments of the selected route only, skipping any too short to draw', () => {
+    const withDot: Route = {
+      ...B,
+      segments: {
+        type: 'FeatureCollection',
+        features: [
+          ...B.segments.features,
+          {
+            type: 'Feature',
+            properties: { level: 'SEVERE', from_mi: 1, to_mi: 1 },
+            geometry: { type: 'LineString', coordinates: [[-104.9, 39.7]] },
+          },
+        ],
+      },
+    };
+    expect(riskSegments(withDot).features.map((f) => f.properties.level)).toEqual(['LOW']);
+    expect(riskSegments(undefined).features).toEqual([]);
+  });
+
+  it('colours segments by level with grey for anything unknown', () => {
+    const colors = { LOW: '#1', MODERATE: '#2', HIGH: '#3', SEVERE: '#4', NO_TRAVEL: '#5' };
+    expect(riskColorExpression(colors, 'gray')).toEqual([
+      'match',
+      ['get', 'level'],
+      'LOW',
+      '#1',
+      'MODERATE',
+      '#2',
+      'HIGH',
+      '#3',
+      'SEVERE',
+      '#4',
+      'NO_TRAVEL',
+      '#5',
+      'gray',
+    ]);
+  });
 });
 
 describe('setRouteSelection', () => {
@@ -73,7 +123,6 @@ describe('setRouteSelection', () => {
     setRouteSelection(map, 'B');
     expect(setFilter).toHaveBeenCalledWith(ROUTE_LAYER.alt, ['!=', ['get', 'routeId'], 'B']);
     expect(setFilter).toHaveBeenCalledWith(ROUTE_LAYER.selectedCasing, ['==', ['get', 'routeId'], 'B']);
-    expect(setFilter).toHaveBeenCalledWith(ROUTE_LAYER.selected, ['==', ['get', 'routeId'], 'B']);
   });
 
   it('waits while a theme swap is loading the next style', () => {

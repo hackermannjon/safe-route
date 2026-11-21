@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MAX_CARGO_LB,
+  cargoError,
   departureBounds,
   departureError,
   localInputToIso,
@@ -49,5 +51,21 @@ describe('departureError', () => {
     ['', 'Choose a departure date and time.'],
   ])('%s -> %s', (value, message) => {
     expect(departureError(value, NOW)).toBe(message);
+  });
+});
+
+describe('cargoError', () => {
+  it.each([0, 1, 30_000, 42_000, MAX_CARGO_LB])('accepts %d lb', (value) => {
+    expect(cargoError(value)).toBeNull();
+  });
+
+  it('asks for a weight when the field is empty', () => {
+    expect(cargoError(null)).toBe('Enter the cargo weight.');
+    expect(cargoError(Number.NaN)).toBe('Enter the cargo weight.');
+  });
+
+  it('refuses weights outside 0 to 80,000 lb with the server wording', () => {
+    expect(cargoError(80_001)).toBe('Cargo weight cannot exceed 80,000 lb.');
+    expect(cargoError(-1)).toBe('Cargo weight cannot be negative.');
   });
 });

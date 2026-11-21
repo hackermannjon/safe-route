@@ -1,8 +1,8 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../../../services/api';
-import type { GeocodeResult, PlanResponse, Route, Weather } from '../../../types/api';
-import { useTripPlannerViewModel, weatherSummary } from '../useTripPlannerViewModel';
+import type { Checkpoint, GeocodeResult, PlanResponse, RiskLevel, Route, Weather } from '../../../types/api';
+import { riskSummary, useTripPlannerViewModel, weatherSummary } from '../useTripPlannerViewModel';
 import { clearPlaceSearchCache } from '../usePlaceSearch';
 
 const CHICAGO: GeocodeResult = { label: 'Chicago, Illinois, United States', name: 'Chicago', lat: 41.88, lon: -87.63 };
@@ -16,9 +16,22 @@ const at = (seconds: number) => new Date(Date.parse(DEPARTURE) + seconds * 1000)
 
 const CALM: Weather = { wind_mph: 10, gust_mph: 18, rain_in_h: 0, snow_in_h: 0, temp_f: 31.4, weather_code: 3 };
 
+// The middle checkpoint of every route is windy enough that heavy cargo raised it.
+const MIDDLE: Pick<Checkpoint, 'level' | 'factor' | 'load_rule'> = {
+  level: 'NO_TRAVEL',
+  factor: 'load',
+  load_rule: 'Wind 45 to under 55 mph with cargo over 30,000 lb',
+};
+const CALM_POINT: Pick<Checkpoint, 'level' | 'factor' | 'load_rule'> = {
+  level: 'LOW',
+  factor: 'wind',
+  load_rule: null,
+};
+
 function route(id: string, distance_mi: number, duration_s: number, via: string[]): Route {
   // Constant speed, checkpoints every 500 mi; enough to tell the routes apart.
   const miles = [0, 500, distance_mi];
+  const levelMiles: Record<RiskLevel, number> = { LOW: 0, MODERATE: 0, HIGH: 0, SEVERE: 0, NO_TRAVEL: distance_mi };
   return {
     id,
     label: `Route ${id}`,
@@ -32,8 +45,10 @@ function route(id: string, distance_mi: number, duration_s: number, via: string[
       lat: 41.88 - (2.14 * mile) / distance_mi,
       lon: -87.63 - (17.36 * mile) / distance_mi,
       eta: at((duration_s * mile) / distance_mi),
+      ...(index === 1 ? MIDDLE : CALM_POINT),
       weather: { ...CALM, wind_mph: index === 1 ? 47 : 10 + index },
     })),
+    risk: { worst_level: 'NO_TRAVEL', avg_risk: 4, miles: levelMiles },
     geometry: {
       type: 'LineString',
       coordinates: [
@@ -41,11 +56,13 @@ function route(id: string, distance_mi: number, duration_s: number, via: string[
         [-104.99, 39.74],
       ],
     },
+    segments: { type: 'FeatureCollection', features: [] },
   };
 }
 
 const PLAN: PlanResponse = {
   departure: DEPARTURE,
+  cargo_lb: 42_000,
   spacing_mi: 25,
   notices: [],
   routes: [
@@ -55,9 +72,10 @@ const PLAN: PlanResponse = {
   ],
 };
 
-function pickBoth(result: { current: ReturnType<typeof useTripPlannerViewModel> }) {
+function pickBoth(result: { current: ReturnType<typeof useTripPlannerViewModel> }, cargo: number | null = 42_000) {
   act(() => result.current.origin.onSelect(CHICAGO));
   act(() => result.current.destination.onSelect(DENVER));
+  act(() => result.current.cargo.onChange(cargo));
 }
 
 describe('useTripPlannerViewModel', () => {
@@ -96,6 +114,7 @@ describe('useTripPlannerViewModel', () => {
         origin: { lat: 41.88, lon: -87.63, label: CHICAGO.label },
         destination: { lat: 39.74, lon: -104.99, label: DENVER.label },
         departure: '2026-11-21T08:00:00-06:00',
+        cargo_lb: 42_000,
         spacing_mi: 25,
       },
       expect.any(AbortSignal),
@@ -109,7 +128,9 @@ describe('useTripPlannerViewModel', () => {
       duration: '15 h 45 min',
       arrival: 'Arrives Sat 11:45 PM',
       via: 'via I-88, I-80, I-76',
+      risk: { level: 'NO_TRAVEL', miles: PLAN.routes[0].risk.miles },
     });
+    expect(result.current.showLegend).toBe(true);
     expect(result.current.summaries[2].via).toBe('');
     expect(result.current.notices).toEqual([]);
     expect(result.current.planning).toBe(false);
@@ -156,6 +177,47 @@ describe('useTripPlannerViewModel', () => {
     expect(result.current.selectedRouteId).toBe('A');
     expect(result.current.notices).toEqual([notice]);
     expect(result.current.routesHeading).toBe('1 route');
+  });
+
+  it('starts with an empty cargo field and asks for it before planning', async () => {
+    const plan = vi.spyOn(api, 'plan');
+    const { result } = renderHook(() => useTripPlannerViewModel());
+    expect(result.current.cargo.value).toBeNull();
+    expect(result.current.cargo.unit).toBe('lb');
+    expect(result.current.showLegend).toBe(false);
+    pickBoth(result, null);
+
+    await act(() => result.current.submit());
+
+    expect(plan).not.toHaveBeenCalled();
+    expect(result.current.cargo.error).toBe('Enter the cargo weight.');
+    act(() => result.current.cargo.onChange(0));
+    expect(result.current.cargo.error).toBeUndefined();
+  });
+
+  it('flags cargo over 80,000 lb as it is typed and refuses to plan with it', async () => {
+    const plan = vi.spyOn(api, 'plan');
+    const { result } = renderHook(() => useTripPlannerViewModel());
+    pickBoth(result, 8_000);
+    expect(result.current.cargo.error).toBeUndefined();
+
+    act(() => result.current.cargo.onChange(80_001));
+    expect(result.current.cargo.error).toBe('Cargo weight cannot exceed 80,000 lb.');
+    await act(() => result.current.submit());
+    expect(plan).not.toHaveBeenCalled();
+
+    act(() => result.current.cargo.onChange(80_000));
+    expect(result.current.cargo.error).toBeUndefined();
+  });
+
+  it.each([0, 5_000, 80_000])('sends %d lb of cargo', async (cargo) => {
+    const plan = vi.spyOn(api, 'plan').mockResolvedValue(PLAN);
+    const { result } = renderHook(() => useTripPlannerViewModel());
+    pickBoth(result, cargo);
+
+    await act(() => result.current.submit());
+
+    expect(plan).toHaveBeenCalledWith(expect.objectContaining({ cargo_lb: cargo }), expect.any(AbortSignal));
   });
 
   it('drops the pick when the text is edited afterwards', () => {
@@ -252,6 +314,7 @@ describe('useTripPlannerViewModel', () => {
   it.each([
     ['departure', 'Departure cannot be more than 1 hour in the past.'],
     ['spacing_mi', 'Checkpoint spacing must be 10, 25 or 50 miles.'],
+    ['cargo_lb', 'Cargo weight cannot exceed 80,000 lb.'],
     ['origin.lat', 'Latitude must be between -90 and 90.'],
   ])('puts a server error on %s next to its field', async (field, message) => {
     vi.spyOn(api, 'plan').mockRejectedValue(new ApiError(message, 400, field));
@@ -263,6 +326,7 @@ describe('useTripPlannerViewModel', () => {
     const errors = {
       departure: result.current.departure.error,
       spacing_mi: result.current.spacing.error,
+      cargo_lb: result.current.cargo.error,
       'origin.lat': result.current.origin.error,
     };
     expect(errors[field as keyof typeof errors]).toBe(message);
@@ -282,6 +346,9 @@ describe('useTripPlannerViewModel', () => {
         place: 'Start · Mile 0',
         eta: 'Sat 8:00 AM',
         weather: 'Overcast · Wind 10 mph · 31°F',
+        level: 'LOW',
+        risk: 'Low',
+        loadRule: null,
         kind: 'origin',
       },
       {
@@ -289,6 +356,9 @@ describe('useTripPlannerViewModel', () => {
         place: 'Mile 500',
         eta: 'Sat 3:45 PM',
         weather: 'Overcast · Wind 47 mph · 31°F',
+        level: 'NO_TRAVEL',
+        risk: 'No Travel · Wind with this load',
+        loadRule: 'Wind 45 to under 55 mph with cargo over 30,000 lb',
         kind: 'stop',
       },
       {
@@ -296,6 +366,9 @@ describe('useTripPlannerViewModel', () => {
         place: 'Arrive · Mile 1,017',
         eta: 'Sat 11:45 PM',
         weather: 'Overcast · Wind 12 mph · 31°F',
+        level: 'LOW',
+        risk: 'Low',
+        loadRule: null,
         kind: 'destination',
       },
     ]);
@@ -370,6 +443,18 @@ describe('weatherSummary', () => {
   });
 });
 
+describe('riskSummary', () => {
+  it('names the level and what set it', () => {
+    expect(riskSummary({ level: 'HIGH', factor: 'rain' })).toBe('High · Rain');
+    expect(riskSummary({ level: 'SEVERE', factor: 'snow' })).toBe('Severe · Snow');
+    expect(riskSummary({ level: 'NO_TRAVEL', factor: 'load' })).toBe('No Travel · Wind with this load');
+  });
+
+  it('names no factor when the level is Low', () => {
+    expect(riskSummary({ level: 'LOW', factor: 'wind' })).toBe('Low');
+  });
+});
+
 describe('useTripPlannerViewModel layout', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] });
@@ -403,7 +488,7 @@ describe('useTripPlannerViewModel layout', () => {
     });
     expect(result.current.status).toBe('ready');
     expect(result.current.formExpanded).toBe(false);
-    expect(result.current.tripLine).toEqual({ route: 'Chicago → Denver', details: 'Sat 8:00 AM' });
+    expect(result.current.tripLine).toEqual({ route: 'Chicago → Denver', details: 'Sat 8:00 AM · 42,000 lb' });
     expect(result.current.selectedSummary?.id).toBe('A');
   });
 
@@ -437,6 +522,7 @@ describe('useTripPlannerViewModel layout', () => {
     expect(result.current.formOpen).toBe(true);
     expect(result.current.origin.query).toBe('Chicago, Illinois, United States');
     expect(result.current.destination.query).toBe('Denver, Colorado, United States');
+    expect(result.current.cargo.value).toBe(42_000);
   });
 
   it('lowers a full sheet so a picked checkpoint shows on the map', async () => {

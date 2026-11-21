@@ -1,4 +1,5 @@
 import type { RouteListItem } from '../../components/RouteList';
+import { RiskBadge } from '../../components/RiskBadge';
 import type { PlanStatus } from './useTripPlannerViewModel';
 import styles from './PeekHeader.module.css';
 
@@ -39,7 +40,10 @@ export function PeekHeader({ status, error, route }: PeekHeaderProps) {
   }
   return (
     <div className={styles.peek}>
-      <p className={styles.title}>{route.label}</p>
+      <div className={styles.top}>
+        <span className={styles.title}>{route.label}</span>
+        <RiskBadge level={route.risk.level} peak />
+      </div>
       <p className={styles.stats}>
         {route.distance} · {route.duration} · {route.arrival}
       </p>
