@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from .geo import interpolate_along, interpolate_value
 from .types import Checkpoint, RouteCandidate
 
-# A spaced checkpoint this close to the destination only duplicates it.
+# A spaced checkpoint this close to the destination only duplicates its weather sample.
 MIN_GAP_BEFORE_DESTINATION_MI = 1.0
 
 

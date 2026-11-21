@@ -10,6 +10,7 @@ from .services.geo import haversine_mi
 SPACING_CHOICES = (10, 25, 50)
 # Departures slightly in the past are allowed so a driver can plan a trip already under way.
 DEPARTURE_GRACE = timedelta(hours=1)
+# Weather forecasts are dependable for about a week; beyond that the plan would be guesswork.
 DEPARTURE_HORIZON = timedelta(days=7)
 MIN_TRIP_MI = 1.0
 
@@ -38,7 +39,9 @@ def check_departure(value):
     if value < now - DEPARTURE_GRACE:
         raise serializers.ValidationError("Departure cannot be more than 1 hour in the past.")
     if value > now + DEPARTURE_HORIZON:
-        raise serializers.ValidationError("Departure must be within the next 7 days.")
+        raise serializers.ValidationError(
+            "Departure must be within the next 7 days (weather forecast range)."
+        )
     return value
 
 

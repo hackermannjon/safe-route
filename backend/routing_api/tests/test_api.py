@@ -2,9 +2,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from routing_api.services import geocoding, planner
+from routing_api.services import geocoding, planner, weather
 from routing_api.services.errors import UpstreamError, ValidationProblem
-from routing_api.services.types import Place, RouteCandidate
+from routing_api.services.types import Place, RouteCandidate, WeatherSample
 
 CHICAGO = {"lat": 41.878, "lon": -87.629, "label": "Chicago, IL"}
 DENVER = {"lat": 39.739, "lon": -104.990, "label": "Denver, CO"}
@@ -12,9 +12,17 @@ NOW = datetime(2026, 11, 21, 13, 30, tzinfo=UTC)
 DEPARTURE = datetime(2026, 11, 21, 14, 0, tzinfo=UTC)
 
 
+CALM = WeatherSample(wind_mph=8.04, gust_mph=15.0, rain_in_h=0, snow_in_h=0, temp_f=31.25)
+
+
 @pytest.fixture(autouse=True)
 def frozen_now(monkeypatch):
     monkeypatch.setattr("routing_api.serializers.timezone.now", lambda: NOW)
+
+
+@pytest.fixture(autouse=True)
+def calm_weather(monkeypatch):
+    monkeypatch.setattr(weather, "fetch_for_points", lambda samples: [CALM for _ in samples])
 
 
 def body(**overrides):
@@ -107,6 +115,14 @@ def test_plan_returns_routes_fastest_first_with_light_geometry(client, monkeypat
         "lat": 41.9,
         "lon": -87.629,
         "eta": "2026-11-21T14:00:00Z",
+        "weather": {
+            "wind_mph": 8.0,
+            "gust_mph": 15.0,
+            "rain_in_h": 0,
+            "snow_in_h": 0,
+            "temp_f": 31.2,
+            "weather_code": None,
+        },
     }
     assert stops[-1]["eta"] == first["arrival"]
     # Constant speed in this fixture: 25 of 1016.44 miles take the same share of 900 minutes.
@@ -193,7 +209,10 @@ def test_plan_required_fields(client, plan_calls, missing):
         (NOW - timedelta(minutes=59), None),
         (NOW - timedelta(minutes=61), "Departure cannot be more than 1 hour in the past."),
         (NOW + timedelta(days=7) - timedelta(minutes=1), None),
-        (NOW + timedelta(days=7, minutes=1), "Departure must be within the next 7 days."),
+        (
+            NOW + timedelta(days=7, minutes=1),
+            "Departure must be within the next 7 days (weather forecast range).",
+        ),
     ],
 )
 def test_departure_window(client, plan_calls, departure, error):
@@ -229,6 +248,19 @@ def test_invalid_json(client, plan_calls):
 
 def test_plan_is_post_only(client):
     assert client.get("/api/plan").status_code == 405
+
+
+def test_weather_failure_is_a_clean_502(client, monkeypatch):
+    def unavailable(samples):
+        raise UpstreamError(weather.UNAVAILABLE)
+
+    monkeypatch.setattr(planner.routing, "fetch_routes", lambda *a, **k: [candidate(41.9, 300, [])])
+    monkeypatch.setattr(weather, "fetch_for_points", unavailable)
+    response = post(client, body())
+    assert response.status_code == 502
+    assert response.json() == {
+        "error": "Weather forecast is unavailable right now. Try again shortly."
+    }
 
 
 def test_upstream_failure_is_502(client, monkeypatch):

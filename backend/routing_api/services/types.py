@@ -35,3 +35,13 @@ class Checkpoint:
     lat: float
     lon: float
     eta: datetime
+
+
+@dataclass(frozen=True)
+class WeatherSample:
+    wind_mph: float
+    gust_mph: float
+    rain_in_h: float
+    snow_in_h: float
+    temp_f: float | None = None
+    weather_code: int | None = None

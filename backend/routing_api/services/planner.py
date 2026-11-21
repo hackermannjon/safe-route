@@ -1,14 +1,14 @@
-"""Trip planning and the plan's response shape."""
+"""Trip planning (routes -> checkpoints -> weather at each ETA) and the plan's response shape."""
 
 from __future__ import annotations
 
 import string
 from datetime import UTC, datetime
 
-from . import checkpoints, routing
+from . import checkpoints, routing, weather
 from .errors import ValidationProblem
 from .geo import simplify, to_lonlat
-from .types import Checkpoint, LatLon, Place, RouteCandidate
+from .types import Checkpoint, LatLon, Place, RouteCandidate, WeatherSample
 
 MAX_ROUTES = 3
 SIMPLIFY_TOLERANCE_DEG = 0.0005
@@ -28,20 +28,26 @@ def plan_trip(
     if not candidates:
         raise ValidationProblem(routing.NO_ROUTE, field="destination")
     candidates = sorted(candidates, key=lambda r: r.duration_s)[:MAX_ROUTES]
+    stops = [checkpoints.build_checkpoints(r, spacing_mi, departure) for r in candidates]
+    # One lookup for every route, so cells the routes share are fetched once.
+    samples = iter(weather.fetch_for_points([(c.lat, c.lon, c.eta) for cps in stops for c in cps]))
+    forecasts = [[next(samples) for _ in cps] for cps in stops]
     return {
         "departure": iso(departure),
         "spacing_mi": spacing_mi,
         "notices": _notices(candidates),
         "routes": [
-            route_payload(
-                route_id, route, checkpoints.build_checkpoints(route, spacing_mi, departure)
+            route_payload(route_id, route, route_stops, route_weather)
+            for route_id, route, route_stops, route_weather in zip(
+                string.ascii_uppercase, candidates, stops, forecasts, strict=False
             )
-            for route_id, route in zip(string.ascii_uppercase, candidates, strict=False)
         ],
     }
 
 
-def route_payload(route_id: str, route: RouteCandidate, stops: list[Checkpoint]) -> dict:
+def route_payload(
+    route_id: str, route: RouteCandidate, stops: list[Checkpoint], forecast: list[WeatherSample]
+) -> dict:
     tolerance = _tolerance_for(route.points)
     return {
         "id": route_id,
@@ -55,17 +61,30 @@ def route_payload(route_id: str, route: RouteCandidate, stops: list[Checkpoint])
             "type": "LineString",
             "coordinates": to_lonlat(simplify(route.points, tolerance)),
         },
-        "checkpoints": [_checkpoint_payload(c) for c in stops],
+        "checkpoints": [_checkpoint_payload(c, w) for c, w in zip(stops, forecast, strict=True)],
     }
 
 
-def _checkpoint_payload(c: Checkpoint) -> dict:
+def _checkpoint_payload(c: Checkpoint, sample: WeatherSample) -> dict:
     return {
         "index": c.index,
         "mile": round(c.mile, 1),
         "lat": c.lat,
         "lon": c.lon,
         "eta": iso(c.eta),
+        "weather": _weather_payload(sample),
+    }
+
+
+def _weather_payload(sample: WeatherSample) -> dict:
+    return {
+        "wind_mph": round(sample.wind_mph, 1),
+        "gust_mph": round(sample.gust_mph, 1),
+        # Three decimals, so a reading of 0.095 in/h is never shown as 0.1.
+        "rain_in_h": round(sample.rain_in_h, 3),
+        "snow_in_h": round(sample.snow_in_h, 3),
+        "temp_f": None if sample.temp_f is None else round(sample.temp_f, 1),
+        "weather_code": sample.weather_code,
     }
 
 

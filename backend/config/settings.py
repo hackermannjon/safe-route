@@ -41,6 +41,8 @@ CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "LOCATION": "safe-route",
+        # Forecasts are cached per grid cell and hour: one long plan alone writes thousands.
+        "OPTIONS": {"MAX_ENTRIES": 50_000},
     }
 }
 
@@ -61,8 +63,9 @@ REST_FRAMEWORK = {
     "UNAUTHENTICATED_USER": None,
 }
 
-# Outbound HTTP to the public routing and geocoding services.
+# Outbound HTTP to the public routing, geocoding and weather services.
 HTTP_USER_AGENT = os.environ.get("HTTP_USER_AGENT", "safe-route/1.0")
 VALHALLA_URL = os.environ.get("VALHALLA_URL", "https://valhalla1.openstreetmap.de")
 OSRM_URL = os.environ.get("OSRM_URL", "https://router.project-osrm.org")
 PHOTON_URL = os.environ.get("PHOTON_URL", "https://photon.komoot.io")
+OPEN_METEO_URL = os.environ.get("OPEN_METEO_URL", "https://api.open-meteo.com")
