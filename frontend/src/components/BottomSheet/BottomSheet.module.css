@@ -1,0 +1,130 @@
+.sheet {
+  /* Mirrored by PEEK_CLEARANCE in the mobile view, which keeps routes clear of it. */
+  --sheet-peek: 144px;
+  --sheet-top-gap: calc(env(safe-area-inset-top) + 80px);
+
+  position: fixed;
+  z-index: 10;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - var(--sheet-top-gap));
+  background: var(--surface-1);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: var(--shadow-float);
+  transform: translate3d(0, calc(100% - 50dvh), 0);
+  transition: transform var(--duration-base) cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
+  contain: layout paint;
+}
+
+.sheet[data-snap='peek'] {
+  transform: translate3d(0, calc(100% - var(--sheet-peek) - env(safe-area-inset-bottom)), 0);
+}
+
+.sheet[data-snap='full'] {
+  transform: translate3d(0, 0, 0);
+}
+
+.sheet[data-dragging] {
+  transition: none;
+}
+
+.safeProbe {
+  position: absolute;
+  width: 0;
+  height: env(safe-area-inset-bottom);
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.header {
+  position: relative;
+  flex: 0 0 var(--sheet-peek);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: 28px calc(var(--space-4) + env(safe-area-inset-right)) var(--space-3)
+    calc(var(--space-4) + env(safe-area-inset-left));
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+
+.sheet[data-dragging] .header {
+  cursor: grabbing;
+}
+
+/*
+ * The whole header is the toggle: the grip alone would be a 36x4 target. The
+ * summary text above it lets pointers through, but anything interactive put in
+ * the header still receives its own clicks.
+ */
+.handle {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12px 0 0;
+  border: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: transparent;
+  cursor: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.handle:focus-visible {
+  outline: none;
+  box-shadow: inset var(--shadow-focus);
+}
+
+.grip {
+  width: 36px;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--ink-faint);
+}
+
+.headerContent {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.headerContent :is(a, button, input, select, textarea, [tabindex]) {
+  pointer-events: auto;
+}
+
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+  padding: 0 calc(var(--space-4) + env(safe-area-inset-right)) calc(var(--space-6) + env(safe-area-inset-bottom))
+    calc(var(--space-4) + env(safe-area-inset-left));
+}
+
+/*
+ * At half height the scroll area must end at the screen edge, or its last rows are unreachable.
+ * While a finger moves the sheet it fills again, so the rows show as they are pulled up.
+ */
+.sheet[data-snap='half']:not([data-dragging]) .body {
+  flex: 0 0 auto;
+  height: calc(50dvh - var(--sheet-peek));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet {
+    transition: none;
+  }
+}

@@ -5,3 +5,10 @@ __pycache__/
 .env.*
 !.env.example
 .DS_Store
+db.sqlite3
+staticfiles/
+.pytest_cache/
+.ruff_cache/
+test-results/
+playwright-report/
+coverage/
