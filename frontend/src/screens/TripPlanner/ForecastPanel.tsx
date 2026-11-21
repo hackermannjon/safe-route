@@ -39,7 +39,7 @@ export function ForecastPanel({ heatmap, className, ref }: ForecastPanelProps) {
             icon: <WeatherIcon name={METRIC_ICON[option.value]} size={18} />,
           }))}
         />
-        {heatmap.status === 'ready' && <HeatmapLegend metric={forecast.metric.value} className={styles.legend} />}
+        {heatmap.status === 'ready' && <HeatmapLegend metric={forecast.metric.value} />}
       </div>
       {heatmap.status === 'loading' && (
         <p className={styles.status} role="status">

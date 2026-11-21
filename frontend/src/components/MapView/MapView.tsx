@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { PLAY_STEP_MS, type HeatmapData, type HeatmapMetric } from '../../lib/heatmap';
-import type { TruckPosition } from '../../lib/truck';
+import { walkLine, type TruckPosition } from '../../lib/truck';
 import type { Checkpoint, Route } from '../../types/api';
 import { ATTRIBUTION_CLEARANCE_PX, fitPadding, type MapPadding, type MapTheme } from './camera';
 import { CheckpointPopup } from './CheckpointPopup';
@@ -101,7 +101,7 @@ function supportsWebGL(): boolean {
   }
 }
 
-/** Most of a playback step, so the truck rests a moment at each hour. */
+/** A whole playback step, so the truck never stops at an hour. */
 const TRUCK_GLIDE_MS = PLAY_STEP_MS;
 
 /** Pixels from the map's centre to the centre of the area the panels leave free. */
@@ -184,6 +184,7 @@ export function MapView({
     reducedMotion,
     heatmap,
     padding,
+    truck,
   });
   const [webgl] = useState(supportsWebGL);
 
@@ -197,6 +198,7 @@ export function MapView({
       reducedMotion,
       heatmap,
       padding,
+      truck,
     };
   });
 
@@ -369,25 +371,26 @@ export function MapView({
       return;
     }
     const target: [number, number] = [truckLon, truckLat];
-    const { heatmap: current, reducedMotion: still } = latest.current;
+    const { heatmap: current, reducedMotion: still, truck: position } = latest.current;
     const onMap = marker.getElement().isConnected;
     // Whichever way the truck moves, a following camera keeps it in the middle of the free area.
     const follow = (at: [number, number]) => {
       if (followRef.current && !map.isMoving()) centreOn(map, at, latest.current.padding);
     };
-    if (!onMap || !current?.playing || still) {
+    const trail = position?.trail ?? [];
+    if (!onMap || !current?.playing || still || trail.length < 2) {
       marker.setLngLat(target);
       if (!onMap) marker.addTo(map);
       follow(target);
       return;
     }
-    // Between hours the truck glides in a straight line at a steady pace that lasts the whole step,
-    // so playback never pauses at an hour; an hour is a few pixels at trip scale.
-    const from = marker.getLngLat();
+    // Between hours the truck drives the past hour's stretch of the route at a steady pace that
+    // lasts the whole step, so it keeps to the road and never pauses at an hour.
+    const along = walkLine(trail);
     const started = performance.now();
     const step = (now: number) => {
       const t = Math.min(1, (now - started) / TRUCK_GLIDE_MS);
-      const at: [number, number] = [from.lng + (target[0] - from.lng) * t, from.lat + (target[1] - from.lat) * t];
+      const at = along(t);
       marker.setLngLat(at);
       follow(at);
       glideRef.current = t < 1 ? requestAnimationFrame(step) : null;

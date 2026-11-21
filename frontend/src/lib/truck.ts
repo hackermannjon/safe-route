@@ -17,6 +17,11 @@ export interface TruckPosition {
   lat: number;
   mile: number;
   arrived: boolean;
+  /**
+   * The route line driven over the past hour, ending here. Playback glides the truck along it, so
+   * the marker keeps to the road instead of cutting across between hourly positions.
+   */
+  trail: readonly GeoJSON.Position[];
 }
 
 const EARTH_RADIUS_MI = 3958.7613;
@@ -71,6 +76,37 @@ function lerpAt(xs: readonly number[], ys: readonly number[], x: number): number
   return span > 0 ? ys[i] + ((ys[i + 1] - ys[i]) * (x - xs[i])) / span : ys[i + 1];
 }
 
+const HOUR_MS = 3_600_000;
+
+function mileAt(track: Track, atMs: number): number {
+  if (atMs >= track.arriveMs) return track.miles[track.miles.length - 1];
+  return Math.max(0, lerpAt(track.times, track.miles, atMs));
+}
+
+/** The point on the drawn line at a route mile, clamped to its ends. */
+function pointAtMile({ coords, lineMiles }: Track, mile: number): GeoJSON.Position {
+  const last = coords.length - 1;
+  if (last === 0 || mile <= 0) return coords[0];
+  if (mile >= lineMiles[last]) return coords[last];
+  const i = segmentAt(lineMiles, mile);
+  const span = lineMiles[i + 1] - lineMiles[i];
+  const t = span > 0 ? (mile - lineMiles[i]) / span : 0;
+  const [lon1, lat1] = coords[i];
+  const [lon2, lat2] = coords[i + 1];
+  return [lon1 + (lon2 - lon1) * t, lat1 + (lat2 - lat1) * t];
+}
+
+/** The drawn line from one route mile to a later one, both ends included. */
+export function lineBetween(track: Track, fromMile: number, toMile: number): GeoJSON.Position[] {
+  const line = [pointAtMile(track, fromMile)];
+  const { coords, lineMiles } = track;
+  for (let i = 0; i < coords.length; i++) {
+    if (lineMiles[i] > fromMile && lineMiles[i] < toMile) line.push(coords[i]);
+  }
+  if (toMile > fromMile) line.push(pointAtMile(track, toMile));
+  return line;
+}
+
 /**
  * The truck's position at a moment: linear in time between checkpoint ETAs, then placed on the
  * drawn line by route mile. Before departure it waits at the origin; from arrival on it is at
@@ -78,16 +114,28 @@ function lerpAt(xs: readonly number[], ys: readonly number[], x: number): number
  */
 export function truckAt(track: Track, atMs: number): TruckPosition {
   const arrived = atMs >= track.arriveMs;
-  const mile = arrived ? track.miles[track.miles.length - 1] : lerpAt(track.times, track.miles, atMs);
-  const { coords, lineMiles } = track;
-  if (coords.length === 1 || mile <= 0)
-    return { lon: coords[0][0], lat: coords[0][1], mile: Math.max(0, mile), arrived };
-  const last = coords.length - 1;
-  if (mile >= lineMiles[last]) return { lon: coords[last][0], lat: coords[last][1], mile, arrived };
-  const i = segmentAt(lineMiles, mile);
-  const span = lineMiles[i + 1] - lineMiles[i];
-  const t = span > 0 ? (mile - lineMiles[i]) / span : 0;
-  const [lon1, lat1] = coords[i];
-  const [lon2, lat2] = coords[i + 1];
-  return { lon: lon1 + (lon2 - lon1) * t, lat: lat1 + (lat2 - lat1) * t, mile, arrived };
+  const mile = mileAt(track, atMs);
+  const [lon, lat] = pointAtMile(track, mile);
+  return { lon, lat, mile, arrived, trail: lineBetween(track, mileAt(track, atMs - HOUR_MS), mile) };
+}
+
+/**
+ * A walker over a line: the point a fraction of its length along, measured on the ground, so a
+ * steady fraction is a steady speed however unevenly the line's points are spaced.
+ */
+export function walkLine(line: readonly GeoJSON.Position[]): (fraction: number) => [number, number] {
+  const lengths = [0];
+  for (let i = 1; i < line.length; i++) lengths.push(lengths[i - 1] + haversineMi(line[i - 1], line[i]));
+  const total = lengths[lengths.length - 1];
+  return (fraction) => {
+    const last = line[line.length - 1];
+    if (total <= 0 || fraction >= 1) return [last[0], last[1]];
+    const target = Math.max(0, fraction) * total;
+    const i = segmentAt(lengths, target);
+    const span = lengths[i + 1] - lengths[i];
+    const t = span > 0 ? (target - lengths[i]) / span : 0;
+    const [lon1, lat1] = line[i];
+    const [lon2, lat2] = line[i + 1];
+    return [lon1 + (lon2 - lon1) * t, lat1 + (lat2 - lat1) * t];
+  };
 }

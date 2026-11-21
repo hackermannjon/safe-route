@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Checkpoint, Route } from '../types/api';
-import { buildTrack, truckAt } from './truck';
+import { buildTrack, truckAt, walkLine } from './truck';
 
 const DEPART = Date.parse('2026-11-21T14:00:00Z');
 const HOUR = 3_600_000;
@@ -40,7 +40,7 @@ describe('truckAt', () => {
   const track = buildTrack(ROUTE)!;
 
   it('starts at the origin at departure', () => {
-    expect(truckAt(track, DEPART)).toEqual({ lon: 0, lat: 0, mile: 0, arrived: false });
+    expect(truckAt(track, DEPART)).toMatchObject({ lon: 0, lat: 0, mile: 0, arrived: false });
   });
 
   it('follows checkpoint ETAs, not an average speed', () => {
@@ -62,7 +62,7 @@ describe('truckAt', () => {
 
   it('stays at the destination once arrived', () => {
     for (const hours of [3, 4, 48]) {
-      expect(truckAt(track, DEPART + hours * HOUR)).toEqual({ lon: 1, lat: 1, mile: 2 * LEG, arrived: true });
+      expect(truckAt(track, DEPART + hours * HOUR)).toMatchObject({ lon: 1, lat: 1, mile: 2 * LEG, arrived: true });
     }
   });
 
@@ -81,5 +81,46 @@ describe('truckAt', () => {
 
   it('handles a route without data', () => {
     expect(buildTrack({ ...ROUTE, checkpoints: [] })).toBeNull();
+  });
+
+  it('trails the road driven over the past hour, round the corner rather than across it', () => {
+    // 1.5 h to 2.5 h crosses the corner at (1, 0): the trail must pass through it.
+    const trail = truckAt(track, DEPART + 2.5 * HOUR).trail;
+    expect(trail[0][0]).toBeCloseTo(0.75, 3);
+    expect(trail[0][1]).toBeCloseTo(0, 6);
+    expect(trail).toContainEqual([1, 0]);
+    const end = trail[trail.length - 1];
+    expect(end[0]).toBeCloseTo(1, 6);
+    expect(end[1]).toBeCloseTo(0.5, 2);
+  });
+
+  it('has a one-point trail while waiting at the origin or after arriving', () => {
+    expect(truckAt(track, DEPART).trail).toHaveLength(1);
+    expect(truckAt(track, DEPART + 5 * HOUR).trail).toHaveLength(1);
+  });
+});
+
+describe('walkLine', () => {
+  it('moves at a steady ground speed along a bent line, so it never cuts the corner', () => {
+    const along = walkLine([
+      [0, 0],
+      [1, 0],
+      [1, 1],
+    ]);
+    expect(along(0)).toEqual([0, 0]);
+    const quarter = along(0.25);
+    expect(quarter[0]).toBeCloseTo(0.5, 2);
+    expect(quarter[1]).toBeCloseTo(0, 6);
+    const half = along(0.5);
+    expect(half[0]).toBeCloseTo(1, 2);
+    expect(half[1]).toBeCloseTo(0, 2);
+    const threeQuarters = along(0.75);
+    expect(threeQuarters[0]).toBeCloseTo(1, 6);
+    expect(threeQuarters[1]).toBeCloseTo(0.5, 2);
+    expect(along(1)).toEqual([1, 1]);
+  });
+
+  it('stays on a single point', () => {
+    expect(walkLine([[2, 3]])(0.5)).toEqual([2, 3]);
   });
 });
