@@ -8,6 +8,7 @@ const checkpoint = (index: number): Checkpoint => ({
   lat: 41,
   lon: -87 - index,
   eta: '2026-11-21T14:00:00Z',
+  weather: { wind_mph: 10, gust_mph: 15, rain_in_h: 0, snow_in_h: 0, temp_f: 40, weather_code: 0 },
 });
 
 const route = (id: string, checkpoints = 3): Route => ({

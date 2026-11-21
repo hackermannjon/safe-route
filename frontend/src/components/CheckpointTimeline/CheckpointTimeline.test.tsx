@@ -3,21 +3,39 @@ import { describe, expect, it, vi } from 'vitest';
 import { CheckpointTimeline, type TimelineItem } from './CheckpointTimeline';
 
 const ITEMS: TimelineItem[] = [
-  { index: 0, place: 'Start · Mile 0', eta: 'Sat 8:00 AM', kind: 'origin' },
-  { index: 1, place: 'Mile 25', eta: 'Sat 8:27 AM', kind: 'stop' },
-  { index: 2, place: 'Arrive · Mile 41', eta: 'Sat 8:45 AM', kind: 'destination' },
+  {
+    index: 0,
+    place: 'Start · Mile 0',
+    eta: 'Sat 8:00 AM',
+    weather: 'Overcast · Wind 12 mph · 31°F',
+    kind: 'origin',
+  },
+  {
+    index: 1,
+    place: 'Mile 25',
+    eta: 'Sat 8:27 AM',
+    weather: 'Windy · Wind 47 mph · 29°F',
+    kind: 'stop',
+  },
+  {
+    index: 2,
+    place: 'Arrive · Mile 41',
+    eta: 'Sat 8:45 AM',
+    weather: 'Light snow · Wind 5 mph · Snow 0.62 in/h · 33°F',
+    kind: 'destination',
+  },
 ];
 
 describe('CheckpointTimeline', () => {
-  it('lists every checkpoint in order with its mile and ETA', () => {
+  it('lists every checkpoint in order with its mile, ETA and weather', () => {
     render(<CheckpointTimeline items={ITEMS} selectedIndex={null} onSelect={() => {}} />);
 
     const list = screen.getByRole('list', { name: 'Checkpoints' });
     const rows = within(list).getAllByRole('button');
     expect(rows.map((row) => row.textContent)).toEqual([
-      'Start · Mile 0Sat 8:00 AM',
-      'Mile 25Sat 8:27 AM',
-      'Arrive · Mile 41Sat 8:45 AM',
+      'Start · Mile 0Sat 8:00 AMOvercast · Wind 12 mph · 31°F',
+      'Mile 25Sat 8:27 AMWindy · Wind 47 mph · 29°F',
+      'Arrive · Mile 41Sat 8:45 AMLight snow · Wind 5 mph · Snow 0.62 in/h · 33°F',
     ]);
     expect(rows.every((row) => row.getAttribute('aria-pressed') === 'false')).toBe(true);
   });

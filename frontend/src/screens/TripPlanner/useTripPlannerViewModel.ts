@@ -1,9 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { SheetSnap } from '../../components/BottomSheet';
 import type { TimelineItem } from '../../components/CheckpointTimeline';
-import { formatDuration, formatEta, formatMilepost, formatMiles } from '../../lib/format';
+import {
+  formatDuration,
+  formatEta,
+  formatMilepost,
+  formatMiles,
+  formatRate,
+  formatTemp,
+  formatWind,
+  isMeasurable,
+} from '../../lib/format';
+import { weatherCondition } from '../../lib/weatherCodes';
 import { ApiError, api, isAbortError } from '../../services/api';
-import type { Checkpoint, GeocodeResult, Place, PlanRequest, Route, SpacingMi } from '../../types/api';
+import type { Checkpoint, GeocodeResult, Place, PlanRequest, Route, SpacingMi, Weather } from '../../types/api';
 import {
   DEFAULT_SPACING,
   SPACING_OPTIONS,
@@ -71,12 +81,22 @@ const NO_CHECKPOINTS: Checkpoint[] = [];
 const NO_ROUTES: Route[] = [];
 const NO_NOTICES: string[] = [];
 
+/** Dry readings are left out so the precipitation that is there stands out. */
+export function weatherSummary(weather: Weather): string {
+  const parts = [weatherCondition(weather.weather_code), `Wind ${formatWind(weather.wind_mph)}`];
+  if (isMeasurable(weather.rain_in_h)) parts.push(`Rain ${formatRate(weather.rain_in_h)}`);
+  if (isMeasurable(weather.snow_in_h)) parts.push(`Snow ${formatRate(weather.snow_in_h)}`);
+  if (weather.temp_f !== null) parts.push(formatTemp(weather.temp_f));
+  return parts.filter(Boolean).join(' · ');
+}
+
 function timelineItems(checkpoints: readonly Checkpoint[]): TimelineItem[] {
   const last = checkpoints.length - 1;
   return checkpoints.map((cp, i) => ({
     index: cp.index,
     place: i === 0 ? 'Start · Mile 0' : i === last ? `Arrive · ${formatMilepost(cp.mile)}` : formatMilepost(cp.mile),
     eta: formatEta(cp.eta),
+    weather: weatherSummary(cp.weather),
     kind: i === 0 ? 'origin' : i === last ? 'destination' : 'stop',
   }));
 }
@@ -265,11 +285,13 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
     (index: number) => {
       if (!checkpoints.some((cp) => cp.index === index)) return;
       store.selectCheckpoint(index);
-      // A full sheet hides the map, where the checkpoint is shown.
+      // A full sheet hides the map, where the checkpoint's details open.
       setSheetSnap((snap) => (snap === 'full' ? 'half' : snap));
     },
     [checkpoints, store],
   );
+  const clearCheckpoint = useCallback(() => store.selectCheckpoint(null), [store]);
+  const selectedRouteLabel = routes.find((route) => route.id === selectedRouteId)?.label ?? '';
   // Picker bounds and zone name only guide the input; they need not tick with the clock.
   const [openedAt] = useState(() => new Date());
   const bounds = useMemo(() => departureBounds(openedAt), [openedAt]);
@@ -294,9 +316,9 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
   useHistoryLayers(mobile, { form: formOpen, results: hasResults && sheetSnap !== 'peek' }, onHistoryPop);
 
   // On a phone everything over the map closes with Escape, the topmost first, like Back does.
-  const escapeState = useRef({ formOpen, sheetSnap });
+  const escapeState = useRef({ formOpen, selectedCheckpoint, sheetSnap });
   useEffect(() => {
-    escapeState.current = { formOpen, sheetSnap };
+    escapeState.current = { formOpen, selectedCheckpoint, sheetSnap };
   });
   useEffect(() => {
     if (!mobile) return;
@@ -305,6 +327,7 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       const open = escapeState.current;
       if (open.formOpen) setFormOpen(false);
+      else if (open.selectedCheckpoint !== null) useTripStore.getState().selectCheckpoint(null);
       else if (open.sheetSnap !== 'peek') setSheetSnap('peek');
       else return;
       event.preventDefault();
@@ -363,6 +386,8 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
     timeline,
     selectedCheckpoint,
     selectCheckpoint,
+    clearCheckpoint,
+    selectedRouteLabel,
     submit,
     status,
     hasResults,

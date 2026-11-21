@@ -18,6 +18,19 @@ export interface PlanRequest {
   spacing_mi: SpacingMi;
 }
 
+/** Forecast for the hour nearest a checkpoint's ETA. */
+export interface Weather {
+  /** Sustained wind at 10 m. */
+  wind_mph: number;
+  gust_mph: number;
+  /** Rain plus showers. */
+  rain_in_h: number;
+  snow_in_h: number;
+  temp_f: number | null;
+  /** WMO weather interpretation code; null when the model has none. */
+  weather_code: number | null;
+}
+
 export interface Checkpoint {
   /** 0 is the origin; the last one is the destination. */
   index: number;
@@ -27,6 +40,7 @@ export interface Checkpoint {
   lon: number;
   /** When the truck gets there, UTC ISO. */
   eta: string;
+  weather: Weather;
 }
 
 export interface Route {

@@ -45,7 +45,7 @@ describe('departureError', () => {
     ['2026-11-21T06:31', null],
     ['2026-11-21T06:29', 'Departure cannot be more than 1 hour in the past.'],
     ['2026-11-28T07:30', null],
-    ['2026-11-28T07:31', 'Departure must be within the next 7 days.'],
+    ['2026-11-28T07:31', 'Departure must be within the next 7 days (weather forecast range).'],
     ['', 'Choose a departure date and time.'],
   ])('%s -> %s', (value, message) => {
     expect(departureError(value, NOW)).toBe(message);

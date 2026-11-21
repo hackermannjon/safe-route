@@ -48,9 +48,11 @@ export function MobileView({ vm, theme, onToggleTheme }: ViewProps) {
             checkpoints={vm.checkpoints}
             selectedCheckpoint={vm.selectedCheckpoint}
             onSelectCheckpoint={vm.selectCheckpoint}
+            onCloseCheckpoint={vm.clearCheckpoint}
             padding={padding}
             theme={theme}
             zoomControls={false}
+            escapeCloses={false}
           />
         </main>
 

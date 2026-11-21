@@ -17,7 +17,7 @@ export function PeekHeader({ status, error, route }: PeekHeaderProps) {
           <span className={styles.pulse} aria-hidden="true" />
           Planning your trip
         </p>
-        <p className={styles.line}>Routing, then timing each checkpoint along the way.</p>
+        <p className={styles.line}>Routing, then reading the forecast along the way.</p>
       </div>
     );
   }

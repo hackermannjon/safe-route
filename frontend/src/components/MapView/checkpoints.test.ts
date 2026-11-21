@@ -15,6 +15,7 @@ const cp = (index: number, lon: number, lat: number): Checkpoint => ({
   lat,
   lon,
   eta: '2026-11-21T14:00:00Z',
+  weather: { wind_mph: 10, gust_mph: 15, rain_in_h: 0, snow_in_h: 0, temp_f: 40, weather_code: 0 },
 });
 
 describe('checkpoint map helpers', () => {

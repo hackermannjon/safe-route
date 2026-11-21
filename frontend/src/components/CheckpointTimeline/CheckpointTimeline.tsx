@@ -8,6 +8,8 @@ export interface TimelineItem {
   place: string;
   /** Local clock time, e.g. "Sat 8:00 AM". */
   eta: string;
+  /** Forecast at the ETA in a few words, e.g. "Light snow · Wind 12 mph · Snow 0.05 in/h · 31°F". */
+  weather: string;
   kind: 'origin' | 'stop' | 'destination';
 }
 
@@ -49,6 +51,7 @@ export function CheckpointTimeline({ items, selectedIndex, onSelect, label = 'Ch
             <span className={styles.dot} aria-hidden="true" />
             <span className={styles.place}>{item.place}</span>
             <span className={styles.eta}>{item.eta}</span>
+            <span className={styles.weather}>{item.weather}</span>
           </button>
         </li>
       ))}

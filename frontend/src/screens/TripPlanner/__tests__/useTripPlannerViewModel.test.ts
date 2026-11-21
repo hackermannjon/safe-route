@@ -1,8 +1,8 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../../../services/api';
-import type { GeocodeResult, PlanResponse, Route } from '../../../types/api';
-import { useTripPlannerViewModel } from '../useTripPlannerViewModel';
+import type { GeocodeResult, PlanResponse, Route, Weather } from '../../../types/api';
+import { useTripPlannerViewModel, weatherSummary } from '../useTripPlannerViewModel';
 import { clearPlaceSearchCache } from '../usePlaceSearch';
 
 const CHICAGO: GeocodeResult = { label: 'Chicago, Illinois, United States', name: 'Chicago', lat: 41.88, lon: -87.63 };
@@ -13,6 +13,8 @@ const NOW = new Date('2026-11-21T13:30:00Z');
 const DEPARTURE = '2026-11-21T14:00:00Z';
 
 const at = (seconds: number) => new Date(Date.parse(DEPARTURE) + seconds * 1000).toISOString().replace('.000', '');
+
+const CALM: Weather = { wind_mph: 10, gust_mph: 18, rain_in_h: 0, snow_in_h: 0, temp_f: 31.4, weather_code: 3 };
 
 function route(id: string, distance_mi: number, duration_s: number, via: string[]): Route {
   // Constant speed, checkpoints every 500 mi; enough to tell the routes apart.
@@ -30,6 +32,7 @@ function route(id: string, distance_mi: number, duration_s: number, via: string[
       lat: 41.88 - (2.14 * mile) / distance_mi,
       lon: -87.63 - (17.36 * mile) / distance_mi,
       eta: at((duration_s * mile) / distance_mi),
+      weather: { ...CALM, wind_mph: index === 1 ? 47 : 10 + index },
     })),
     geometry: {
       type: 'LineString',
@@ -216,7 +219,7 @@ describe('useTripPlannerViewModel', () => {
 
   it.each([
     ['2026-11-21T06:00', 'Departure cannot be more than 1 hour in the past.'],
-    ['2026-12-01T08:00', 'Departure must be within the next 7 days.'],
+    ['2026-12-01T08:00', 'Departure must be within the next 7 days (weather forecast range).'],
     ['', 'Choose a departure date and time.'],
   ])('refuses departure %s before asking the server', async (value, message) => {
     const plan = vi.spyOn(api, 'plan');
@@ -266,7 +269,7 @@ describe('useTripPlannerViewModel', () => {
     expect(result.current.error).toBeNull();
   });
 
-  it('lists the selected route checkpoints with mile and local ETA', async () => {
+  it('lists the selected route checkpoints with mile, local ETA and weather', async () => {
     vi.spyOn(api, 'plan').mockResolvedValue(PLAN);
     const { result } = renderHook(() => useTripPlannerViewModel());
     pickBoth(result);
@@ -278,18 +281,21 @@ describe('useTripPlannerViewModel', () => {
         index: 0,
         place: 'Start · Mile 0',
         eta: 'Sat 8:00 AM',
+        weather: 'Overcast · Wind 10 mph · 31°F',
         kind: 'origin',
       },
       {
         index: 1,
         place: 'Mile 500',
         eta: 'Sat 3:45 PM',
+        weather: 'Overcast · Wind 47 mph · 31°F',
         kind: 'stop',
       },
       {
         index: 2,
         place: 'Arrive · Mile 1,017',
         eta: 'Sat 11:45 PM',
+        weather: 'Overcast · Wind 12 mph · 31°F',
         kind: 'destination',
       },
     ]);
@@ -319,6 +325,21 @@ describe('useTripPlannerViewModel', () => {
     expect(result.current.selectedCheckpoint).toBeNull();
   });
 
+  it('closes the checkpoint details and names the route they belong to', async () => {
+    vi.spyOn(api, 'plan').mockResolvedValue(PLAN);
+    const { result } = renderHook(() => useTripPlannerViewModel());
+    pickBoth(result);
+    await act(() => result.current.submit());
+    expect(result.current.selectedRouteLabel).toBe('Route A');
+    act(() => result.current.selectCheckpoint(1));
+
+    act(() => result.current.clearCheckpoint());
+
+    expect(result.current.selectedCheckpoint).toBeNull();
+    act(() => result.current.selectRoute('B'));
+    expect(result.current.selectedRouteLabel).toBe('Route B');
+  });
+
   it('clears the checkpoint on a new plan', async () => {
     vi.spyOn(api, 'plan').mockResolvedValue(PLAN);
     const { result } = renderHook(() => useTripPlannerViewModel());
@@ -329,6 +350,23 @@ describe('useTripPlannerViewModel', () => {
     await act(() => result.current.submit());
 
     expect(result.current.selectedCheckpoint).toBeNull();
+  });
+});
+
+describe('weatherSummary', () => {
+  it('names the condition, wind and temperature', () => {
+    expect(weatherSummary(CALM)).toBe('Overcast · Wind 10 mph · 31°F');
+  });
+
+  it('adds rain and snow only when there is a measurable amount', () => {
+    expect(weatherSummary({ ...CALM, rain_in_h: 0.004, snow_in_h: 0 })).toBe('Overcast · Wind 10 mph · 31°F');
+    expect(weatherSummary({ ...CALM, weather_code: 73, rain_in_h: 0.02, snow_in_h: 0.37 })).toBe(
+      'Snow · Wind 10 mph · Rain 0.02 in/h · Snow 0.37 in/h · 31°F',
+    );
+  });
+
+  it('leaves out what the forecast does not have', () => {
+    expect(weatherSummary({ ...CALM, weather_code: null, temp_f: null })).toBe('Wind 10 mph');
   });
 });
 
@@ -419,11 +457,15 @@ describe('useTripPlannerViewModel layout', () => {
     const { result } = renderHook(() => useTripPlannerViewModel({ layout: 'mobile' }));
     pickBoth(result);
     await act(() => result.current.submit());
+    act(() => result.current.selectCheckpoint(1));
     act(() => result.current.openForm());
 
     const escape = () => act(() => void window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
     escape();
     expect(result.current.formOpen).toBe(false);
+    expect(result.current.selectedCheckpoint).toBe(1);
+    escape();
+    expect(result.current.selectedCheckpoint).toBeNull();
     expect(result.current.sheetSnap).toBe('half');
     escape();
     expect(result.current.sheetSnap).toBe('peek');

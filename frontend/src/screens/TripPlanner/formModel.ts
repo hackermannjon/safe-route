@@ -4,7 +4,7 @@ const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
 /** Mirrors the server: a trip already under way may start up to an hour ago. */
 export const DEPARTURE_GRACE_MS = HOUR_MS;
-/** Mirrors the server: a trip can be planned up to a week ahead. */
+/** Mirrors the server: forecasts reach about a week ahead. */
 export const DEPARTURE_HORIZON_MS = 7 * DAY_MS;
 
 export const SPACING_OPTIONS: ReadonlyArray<{ value: SpacingMi; label: string }> = [
@@ -69,7 +69,7 @@ export function departureError(value: string, now: Date): string | null {
     return 'Departure cannot be more than 1 hour in the past.';
   }
   if (departure.getTime() > now.getTime() + DEPARTURE_HORIZON_MS) {
-    return 'Departure must be within the next 7 days.';
+    return 'Departure must be within the next 7 days (weather forecast range).';
   }
   return null;
 }

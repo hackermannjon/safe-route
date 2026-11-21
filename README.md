@@ -1,8 +1,8 @@
 # Safe Route
 
-Route planning for truck drivers. Enter an origin, a destination, a departure time
-and how far apart the checkpoints should be. Safe Route returns up to three truck routes
-with checkpoints along each one and the time the truck will reach each of them.
+Weather-aware route planning for truck drivers. Enter an origin, a destination, a departure time
+and how often to check the weather. Safe Route returns up to three truck routes
+and forecasts the weather at checkpoints along each one for the hour the truck will be there.
 
 ## Run locally
 

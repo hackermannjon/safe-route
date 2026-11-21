@@ -30,14 +30,14 @@ describe('DateTimeField', () => {
         label="Departure"
         value="2026-12-21T08:00"
         hint="Your local time (CST)"
-        error="Departure must be within the next 7 days."
+        error="Departure must be within the next 7 days (weather forecast range)."
         onChange={() => {}}
       />,
     );
 
     const input = screen.getByLabelText('Departure');
     expect(input).toHaveAttribute('aria-invalid', 'true');
-    expect(input).toHaveAccessibleDescription('Departure must be within the next 7 days.');
+    expect(input).toHaveAccessibleDescription('Departure must be within the next 7 days (weather forecast range).');
     expect(screen.queryByText('Your local time (CST)')).not.toBeInTheDocument();
   });
 

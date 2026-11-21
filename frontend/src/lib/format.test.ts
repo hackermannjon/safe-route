@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { formatDuration, formatEta, formatMilepost, formatMiles } from './format';
+import {
+  formatDuration,
+  formatEta,
+  formatMilepost,
+  formatMiles,
+  formatRate,
+  formatTemp,
+  formatWind,
+  isMeasurable,
+} from './format';
 
 describe('formatMiles', () => {
   it('rounds to whole miles with a thousands separator', () => {
@@ -40,5 +49,37 @@ describe('formatEta', () => {
 
   it('shows a dash for an unreadable time', () => {
     expect(formatEta('soon')).toBe('—');
+  });
+});
+
+describe('weather readings', () => {
+  it('truncates wind so a value under a threshold never reads as it', () => {
+    expect(formatWind(24.9)).toBe('24 mph');
+    expect(formatWind(0)).toBe('0 mph');
+    expect(formatWind(Number.NaN)).toBe('—');
+  });
+
+  it.each([
+    [0, '0 in/h'],
+    [0.004, '< 0.01 in/h'],
+    [0.01, '0.01 in/h'],
+    [0.099, '0.09 in/h'],
+    [0.29, '0.29 in/h'],
+    [1.5, '1.50 in/h'],
+  ])('rate %d reads as %s', (value, text) => {
+    expect(formatRate(value)).toBe(text);
+  });
+
+  it('treats traces below the shown precision as not measurable', () => {
+    expect(isMeasurable(0)).toBe(false);
+    expect(isMeasurable(0.009)).toBe(false);
+    expect(isMeasurable(0.01)).toBe(true);
+  });
+
+  it('rounds temperature and never prints a negative zero', () => {
+    expect(formatTemp(31.6)).toBe('32°F');
+    expect(formatTemp(-0.3)).toBe('0°F');
+    expect(formatTemp(-12.4)).toBe('-12°F');
+    expect(formatTemp(null)).toBe('—');
   });
 });

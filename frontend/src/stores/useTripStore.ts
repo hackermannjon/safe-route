@@ -13,7 +13,7 @@ export interface TripState {
   setPlan: (plan: PlanResponse) => void;
   clearPlan: () => void;
   selectRoute: (routeId: string) => void;
-  selectCheckpoint: (index: number) => void;
+  selectCheckpoint: (index: number | null) => void;
   reset: () => void;
 }
 
@@ -39,6 +39,10 @@ export const useTripStore = create<TripState>()((set, get) => ({
   },
 
   selectCheckpoint: (index) => {
+    if (index === null) {
+      set({ selectedCheckpoint: null });
+      return;
+    }
     const { plan, selectedRouteId } = get();
     const route = plan?.routes.find((r) => r.id === selectedRouteId);
     if (route?.checkpoints.some((cp) => cp.index === index)) set({ selectedCheckpoint: index });

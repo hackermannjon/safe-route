@@ -42,7 +42,7 @@ export function DesktopView({ vm, theme, onToggleTheme }: ViewProps) {
         <header className={styles.brand}>
           <div className={styles.name}>
             <h1 className={styles.wordmark}>Safe Route</h1>
-            <p className={styles.tagline}>Truck route planning</p>
+            <p className={styles.tagline}>Weather-aware truck routing</p>
           </div>
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
         </header>
@@ -83,6 +83,7 @@ export function DesktopView({ vm, theme, onToggleTheme }: ViewProps) {
           checkpoints={vm.checkpoints}
           selectedCheckpoint={vm.selectedCheckpoint}
           onSelectCheckpoint={vm.selectCheckpoint}
+          onCloseCheckpoint={vm.clearCheckpoint}
           theme={theme}
         />
       </main>

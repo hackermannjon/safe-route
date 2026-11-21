@@ -24,8 +24,8 @@ export interface ResultsContentProps {
   statusInHeader?: boolean;
 }
 
-const LOADING_MESSAGE = 'Finding routes and checkpoints…';
-const LOADING_DETAIL = 'Each checkpoint shows when your truck gets there.';
+const LOADING_MESSAGE = 'Checking the forecast along each route…';
+const LOADING_DETAIL = 'Weather is read for the hour your truck reaches each checkpoint.';
 
 /**
  * Everything below the form, the same on both layouts; only its container differs. Memoised so

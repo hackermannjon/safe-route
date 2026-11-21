@@ -1,0 +1,94 @@
+.card {
+  display: grid;
+  gap: var(--space-2);
+  /* With the popup's padding this leaves a margin on a 320px phone. */
+  width: min(240px, calc(100vw - 56px));
+  color: var(--ink);
+  font: var(--type-body);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.title {
+  margin: 0;
+  font: var(--type-display-md);
+  font-variant-numeric: tabular-nums;
+}
+
+.eta {
+  margin-left: var(--space-2);
+  font: var(--type-body);
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+/* 32px drawn, 48px to the touch: the extra lies in the popup's own padding. */
+.close {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin: -6px -6px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--ink-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.close::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
+
+.close:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+
+.sub {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--ink-muted);
+}
+
+.condition {
+  color: var(--ink);
+  font-weight: 600;
+  text-align: right;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px 10px;
+  margin: 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.cell dt {
+  font: var(--type-caption);
+  color: var(--ink-muted);
+}
+
+.cell dd {
+  margin: 0;
+  font: var(--type-data);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

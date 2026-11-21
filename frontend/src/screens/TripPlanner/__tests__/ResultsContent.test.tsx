@@ -17,6 +17,7 @@ const TIMELINE: TimelineItem[] = Array.from({ length: 40 }, (_, index) => ({
   index,
   place: `Mile ${index * 10}`,
   eta: 'Sun 5:00 AM',
+  weather: 'Clear · Wind 8 mph · 50°F',
   kind: index === 0 ? 'origin' : 'stop',
 }));
 
