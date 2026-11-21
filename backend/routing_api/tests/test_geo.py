@@ -1,9 +1,12 @@
 import pytest
 
 from routing_api.services.geo import (
+    bearing_deg,
     cumulative_miles,
     decode_polyline,
+    destination_point,
     haversine_mi,
+    interpolate_along,
     out_and_back_spans,
     simplify,
     to_lonlat,
@@ -19,6 +22,24 @@ def test_haversine_known_distances():
     assert haversine_mi((40.0, -100.0), (41.0, -100.0)) == pytest.approx(69.09, abs=0.01)
     assert haversine_mi(CHICAGO, DENVER) == pytest.approx(920, abs=3)
     assert haversine_mi(CHICAGO, DENVER) == pytest.approx(haversine_mi(DENVER, CHICAGO))
+
+
+def test_bearing_cardinal_directions():
+    assert bearing_deg((0, 0), (1, 0)) == pytest.approx(0)
+    assert bearing_deg((0, 0), (0, 1)) == pytest.approx(90)
+    assert bearing_deg((0, 0), (-1, 0)) == pytest.approx(180)
+    assert bearing_deg((0, 0), (0, -1)) == pytest.approx(270)
+
+
+def test_destination_point_round_trips_with_bearing_and_distance():
+    target = destination_point(CHICAGO, 250.0, 120.0)
+    assert haversine_mi(CHICAGO, target) == pytest.approx(120.0, rel=1e-6)
+    assert bearing_deg(CHICAGO, target) == pytest.approx(250.0, abs=1e-6)
+
+
+def test_destination_point_wraps_longitude():
+    lat, lon = destination_point((0.0, 179.9), 90.0, 50.0)
+    assert -180 <= lon < -179
 
 
 def test_decode_polyline_reference_vector():
@@ -50,6 +71,23 @@ def test_cumulative_miles():
     assert cum[3] == pytest.approx(2 * cum[1], abs=0.01)
     assert cumulative_miles([]) == []
     assert cumulative_miles([CHICAGO]) == [0.0]
+
+
+def test_interpolate_along_is_linear_and_clamped():
+    points = [(0.0, 0.0), (0.0, 10.0), (10.0, 10.0)]
+    cum = [0.0, 10.0, 20.0]
+    assert interpolate_along(points, cum, 5.0) == pytest.approx((0.0, 5.0))
+    assert interpolate_along(points, cum, 10.0) == pytest.approx((0.0, 10.0))
+    assert interpolate_along(points, cum, 15.0) == pytest.approx((5.0, 10.0))
+    assert interpolate_along(points, cum, -3.0) == (0.0, 0.0)
+    assert interpolate_along(points, cum, 99.0) == pytest.approx((10.0, 10.0))
+    assert interpolate_along([CHICAGO], [0.0], 4.0) == CHICAGO
+
+
+def test_interpolate_along_skips_zero_length_segments():
+    points = [(0.0, 0.0), (0.0, 1.0), (0.0, 1.0), (0.0, 2.0)]
+    cum = [0.0, 1.0, 1.0, 2.0]
+    assert interpolate_along(points, cum, 1.5) == pytest.approx((0.0, 1.5))
 
 
 def test_simplify_collapses_collinear_points():

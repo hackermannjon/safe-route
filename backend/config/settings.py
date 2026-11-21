@@ -64,4 +64,5 @@ REST_FRAMEWORK = {
 # Outbound HTTP to the public routing and geocoding services.
 HTTP_USER_AGENT = os.environ.get("HTTP_USER_AGENT", "safe-route/1.0")
 VALHALLA_URL = os.environ.get("VALHALLA_URL", "https://valhalla1.openstreetmap.de")
+OSRM_URL = os.environ.get("OSRM_URL", "https://router.project-osrm.org")
 PHOTON_URL = os.environ.get("PHOTON_URL", "https://photon.komoot.io")

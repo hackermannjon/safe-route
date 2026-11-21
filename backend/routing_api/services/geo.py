@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from bisect import bisect_right
 from collections import defaultdict
 from collections.abc import Sequence
 
@@ -31,6 +32,29 @@ def haversine_mi(a: LatLon, b: LatLon) -> float:
         + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2
     )
     return 2 * EARTH_RADIUS_MI * math.asin(min(1.0, math.sqrt(h)))
+
+
+def bearing_deg(a: LatLon, b: LatLon) -> float:
+    """Initial great-circle bearing from a to b, 0-360 clockwise from north."""
+    lat1, lat2 = math.radians(a[0]), math.radians(b[0])
+    dlon = math.radians(b[1] - a[1])
+    y = math.sin(dlon) * math.cos(lat2)
+    x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
+    return (math.degrees(math.atan2(y, x)) + 360.0) % 360.0
+
+
+def destination_point(origin: LatLon, bearing: float, distance_mi: float) -> LatLon:
+    lat1, lon1 = math.radians(origin[0]), math.radians(origin[1])
+    theta = math.radians(bearing)
+    delta = distance_mi / EARTH_RADIUS_MI
+    lat2 = math.asin(
+        math.sin(lat1) * math.cos(delta) + math.cos(lat1) * math.sin(delta) * math.cos(theta)
+    )
+    lon2 = lon1 + math.atan2(
+        math.sin(theta) * math.sin(delta) * math.cos(lat1),
+        math.cos(delta) - math.sin(lat1) * math.sin(lat2),
+    )
+    return (math.degrees(lat2), (math.degrees(lon2) + 540.0) % 360.0 - 180.0)
 
 
 def decode_polyline(encoded: str, precision: int = 6) -> list[LatLon]:
@@ -162,6 +186,30 @@ def _plane_distance(point: tuple[float, float], line) -> float:
             if best <= SPUR_MATCH_MI:
                 break
     return best
+
+
+def _locate(cum_values: Sequence[float], target: float) -> tuple[int, float]:
+    """Segment index i and fraction t such that target lies between cum[i] and cum[i + 1]."""
+    last = len(cum_values) - 1
+    if last <= 0 or target <= cum_values[0]:
+        return 0, 0.0
+    if target >= cum_values[last]:
+        return max(last - 1, 0), 1.0
+    i = bisect_right(cum_values, target) - 1
+    span = cum_values[i + 1] - cum_values[i]
+    return i, (target - cum_values[i]) / span if span > 0 else 0.0
+
+
+def interpolate_along(
+    points: Sequence[LatLon], cum_values: Sequence[float], target: float
+) -> LatLon:
+    """Point at a cumulative value, linear between shape points; clamps to the ends."""
+    if len(points) == 1:
+        return points[0]
+    i, t = _locate(cum_values, target)
+    (lat1, lon1), (lat2, lon2) = points[i], points[i + 1]
+    # Shape points are dense enough that planar and great-circle interpolation agree.
+    return (lat1 + (lat2 - lat1) * t, lon1 + (lon2 - lon1) * t)
 
 
 def simplify(points: Sequence[LatLon], tolerance_deg: float) -> list[LatLon]:

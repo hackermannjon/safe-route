@@ -27,7 +27,7 @@ def plan_calls(monkeypatch):
 
     def fake_plan_trip(**kwargs):
         calls.append(kwargs)
-        return {"routes": []}
+        return {"notices": [], "routes": []}
 
     monkeypatch.setattr(planner, "plan_trip", fake_plan_trip)
     return calls
@@ -41,7 +41,7 @@ def test_plan_passes_validated_input_to_the_planner(client, plan_calls):
     assert call["destination"] == Place(39.739, -104.99, "Denver, CO")
 
 
-def candidate(lat, minutes, via, points=2):
+def candidate(lat, minutes, via, points=2, source="valhalla"):
     line = [(lat - i * 0.0001, -87.629 - i * 0.001) for i in range(points)]
     duration = minutes * 60 + 0.4
     return RouteCandidate(
@@ -51,31 +51,68 @@ def candidate(lat, minutes, via, points=2):
         distance_mi=1016.44,
         duration_s=duration,
         via=via,
+        source=source,
     )
 
 
-def test_plan_returns_one_route_with_light_geometry(client, monkeypatch):
-    route = candidate(41.878, 900, ["I-88", "I-80", "I-76"], points=17_000)
+def test_plan_returns_routes_fastest_first_with_light_geometry(client, monkeypatch):
+    routes = [
+        candidate(41.878, 950, ["I-80"], points=17_000),
+        candidate(41.9, 900, ["I-88", "I-80", "I-76"]),
+        candidate(41.7, 1000, ["I-70"]),
+    ]
     seen = []
 
-    def fake_fetch(origin, destination, cargo_lb=0):
-        seen.append(cargo_lb)
-        return route
+    def fake_fetch(origin, destination, cargo_lb=0, max_routes=3):
+        seen.append((cargo_lb, max_routes))
+        return routes
 
-    monkeypatch.setattr(planner.routing, "fetch_route", fake_fetch)
+    monkeypatch.setattr(planner.routing, "fetch_routes", fake_fetch)
 
     payload = post(client, body()).json()
-    assert seen == [0]
-    (only,) = payload["routes"]
-    assert only["id"] == "A"
-    assert only["label"] == "Route A"
-    assert only["via"] == ["I-88", "I-80", "I-76"]
-    assert only["distance_mi"] == 1016.4
-    assert only["duration_s"] == 54000
-    coords = only["geometry"]["coordinates"]
-    assert only["geometry"]["type"] == "LineString"
+    assert seen == [(0, 3)]
+    assert payload["notices"] == []
+    assert [r["id"] for r in payload["routes"]] == ["A", "B", "C"]
+    assert [r["label"] for r in payload["routes"]] == ["Route A", "Route B", "Route C"]
+    first, second, _ = payload["routes"]
+    assert first["via"] == ["I-88", "I-80", "I-76"]
+    assert first["distance_mi"] == 1016.4
+    assert first["duration_s"] == 54000
+    coords = second["geometry"]["coordinates"]
+    assert second["geometry"]["type"] == "LineString"
     assert 2 <= len(coords) <= planner.MAX_GEOMETRY_POINTS
     assert coords[0] == [-87.629, 41.878]
+
+
+@pytest.mark.parametrize(
+    ("routes", "notices"),
+    [
+        ([candidate(41.9, 300, ["I-80"])], ["Only one route was available for this trip."]),
+        (
+            [candidate(41.9, 300, ["I-80"]), candidate(41.7, 350, ["I-70"])],
+            ["Only 2 distinct routes were available for this trip."],
+        ),
+    ],
+)
+def test_plan_says_when_fewer_routes_exist(client, monkeypatch, routes, notices):
+    monkeypatch.setattr(planner.routing, "fetch_routes", lambda *a, **k: routes)
+    payload = post(client, body()).json()
+    assert payload["notices"] == notices
+    assert len(payload["routes"]) == len(routes)
+
+
+def test_plan_warns_when_routes_ignore_truck_restrictions(client, monkeypatch):
+    routes = [candidate(41.9 - i * 0.1, 300 + i, ["I-80"], source="osrm") for i in range(3)]
+    monkeypatch.setattr(planner.routing, "fetch_routes", lambda *a, **k: routes)
+    (notice,) = post(client, body()).json()["notices"]
+    assert "may not respect truck restrictions" in notice
+
+
+def test_plan_with_no_routes_is_a_400_on_destination(client, monkeypatch):
+    monkeypatch.setattr(planner.routing, "fetch_routes", lambda *a, **k: [])
+    response = post(client, body())
+    assert response.status_code == 400
+    assert response.json()["field"] == "destination"
 
 
 @pytest.mark.parametrize(

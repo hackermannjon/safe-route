@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 LatLon = tuple[float, float]
+RouteSource = Literal["valhalla", "osrm"]
 
 
 @dataclass(frozen=True)
@@ -22,3 +24,4 @@ class RouteCandidate:
     distance_mi: float
     duration_s: float
     via: list[str] = field(default_factory=list)
+    source: RouteSource = "valhalla"
