@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import timedelta
 
 from django.utils import timezone
@@ -12,9 +13,15 @@ SPACING_CHOICES = (10, 25, 50)
 MAX_CARGO_LB = 80_000
 # Departures slightly in the past are allowed so a driver can plan a trip already under way.
 DEPARTURE_GRACE = timedelta(hours=1)
+# The weather map is asked for after the plan, often much later: a plan left on screen must not
+# lose its map once its departure time passes. The forecast still serves recent hours.
+HEATMAP_DEPARTURE_GRACE = timedelta(hours=12)
 # Weather forecasts are dependable for about a week; beyond that the plan would be guesswork.
 DEPARTURE_HORIZON = timedelta(days=7)
 MIN_TRIP_MI = 1.0
+# A plan has at most three routes, each simplified to about 1,500 points.
+MAX_HEATMAP_ROUTES = 3
+MAX_ROUTE_POINTS = 5_000
 
 
 class NumberField(serializers.FloatField):
@@ -50,10 +57,14 @@ def cargo_field() -> NumberField:
     )
 
 
-def check_departure(value):
+def check_departure(value, grace: timedelta = DEPARTURE_GRACE):
     now = timezone.now()
-    if value < now - DEPARTURE_GRACE:
-        raise serializers.ValidationError("Departure cannot be more than 1 hour in the past.")
+    if value < now - grace:
+        hours = round(grace.total_seconds() / 3600)
+        unit = "hour" if hours == 1 else "hours"
+        raise serializers.ValidationError(
+            f"Departure cannot be more than {hours} {unit} in the past."
+        )
     if value > now + DEPARTURE_HORIZON:
         raise serializers.ValidationError(
             "Departure must be within the next 7 days (weather forecast range)."
@@ -128,6 +139,56 @@ class PlanRequestSerializer(serializers.Serializer):
                 {"destination": "Origin and destination must be more than 1 mile apart."}
             )
         return attrs
+
+
+class RouteLinesField(serializers.Field):
+    """The plan's route geometries: GeoJSON [lon, lat] pairs, converted to (lat, lon)."""
+
+    default_error_messages = {
+        "required": "Send the planned routes.",
+        "null": "Send the planned routes.",
+        "invalid": "Each route must be a list of at least 2 [longitude, latitude] points.",
+        "count": f"Send between 1 and {MAX_HEATMAP_ROUTES} routes.",
+        "size": f"A route can have at most {MAX_ROUTE_POINTS:,} points.",
+        "range": "Route points must be valid longitudes and latitudes.",
+    }
+
+    def to_internal_value(self, data):
+        # Thousands of points: checked in plain Python rather than one DRF field per number.
+        if not isinstance(data, list) or not 1 <= len(data) <= MAX_HEATMAP_ROUTES:
+            self.fail("count")
+        lines = []
+        for line in data:
+            if not isinstance(line, list) or len(line) < 2:
+                self.fail("invalid")
+            if len(line) > MAX_ROUTE_POINTS:
+                self.fail("size")
+            points = []
+            for point in line:
+                if not (isinstance(point, list) and len(point) == 2 and all(map(_finite, point))):
+                    self.fail("invalid")
+                lon, lat = point
+                if not (-180 <= lon <= 180 and -90 <= lat <= 90):
+                    self.fail("range")
+                points.append((float(lat), float(lon)))
+            lines.append(points)
+        return lines
+
+
+def _finite(value) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
+
+
+class HeatmapRequestSerializer(serializers.Serializer):
+    departure = departure_field()
+    cargo_lb = cargo_field()
+    routes = RouteLinesField()
+
+    def validate_departure(self, value):
+        return check_departure(value, HEATMAP_DEPARTURE_GRACE)
+
+    def validate_cargo_lb(self, value):
+        return whole_pounds(value)
 
 
 class GeocodeQuerySerializer(serializers.Serializer):

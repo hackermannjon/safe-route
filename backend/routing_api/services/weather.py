@@ -68,6 +68,15 @@ def fetch_for_points(samples: Sequence[tuple[float, float, datetime]]) -> list[W
     return [table[key] for key in wanted]
 
 
+def fetch_cells(cells: Iterable[Cell], hours: Iterable[datetime]) -> dict[Key, WeatherSample]:
+    """Forecast for every cell at every hour, keyed by (cell, hour).
+
+    Cells must already sit on the 0.1 degree grid (see `snap`) so they share the cache with
+    plans; hours are whole UTC hours.
+    """
+    return _load({(cell, nearest_hour(hour)) for cell in cells for hour in hours})
+
+
 def grid_step(points: Sequence[tuple[float, float]]) -> float:
     """The finest grid, in tenths of a degree, that keeps one lookup within MAX_LOCATIONS.
 

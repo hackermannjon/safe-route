@@ -5,9 +5,15 @@ from rest_framework.decorators import api_view
 from rest_framework.exceptions import ParseError
 from rest_framework.response import Response
 
-from .serializers import GeocodeQuerySerializer, PlanRequestSerializer, first_error
+from .serializers import (
+    GeocodeQuerySerializer,
+    HeatmapRequestSerializer,
+    PlanRequestSerializer,
+    first_error,
+)
 from .services import geocoding, planner
 from .services.errors import UpstreamError, ValidationProblem
+from .services.heatmap import corridor_heatmap
 from .services.types import Place
 
 
@@ -67,5 +73,18 @@ def plan(request):
         departure=data["departure"],
         spacing_mi=data["spacing_mi"],
         cargo_lb=data["cargo_lb"],
+    )
+    return Response(result)
+
+
+@api_view(["POST"])
+@api_errors
+def heatmap(request):
+    payload = HeatmapRequestSerializer(data=request.data)
+    if not payload.is_valid():
+        return _invalid(payload)
+    data = payload.validated_data
+    result = corridor_heatmap(
+        routes=data["routes"], departure=data["departure"], cargo_lb=data["cargo_lb"]
     )
     return Response(result)
