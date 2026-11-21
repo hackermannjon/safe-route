@@ -1,9 +1,11 @@
 import type { Ref } from 'react';
+import type { HeatmapMetric } from '../../lib/heatmap';
 import { Button } from '../../components/Button';
 import { ForecastSlider } from '../../components/ForecastSlider';
 import { HeatmapLegend } from '../../components/HeatmapLegend';
 import { Icon } from '../../components/Icon';
 import { SegmentedControl } from '../../components/SegmentedControl';
+import { WeatherIcon, type WeatherIconName } from '../../components/WeatherIcon';
 import { useForecastViewModel } from './useForecastViewModel';
 import type { TripPlannerViewModel } from './useTripPlannerViewModel';
 import styles from './ForecastPanel.module.css';
@@ -13,6 +15,8 @@ interface ForecastPanelProps {
   className?: string;
   ref?: Ref<HTMLElement>;
 }
+
+const METRIC_ICON: Record<HeatmapMetric, WeatherIconName> = { risk: 'risk', wind: 'wind', rain: 'drop', snow: 'flake' };
 
 /**
  * The weather map's controls, docked on the map: the hour, the metric and its scale. The hour
@@ -28,7 +32,13 @@ export function ForecastPanel({ heatmap, className, ref }: ForecastPanelProps) {
     >
       <ForecastSlider {...forecast.slider} />
       <div className={styles.row}>
-        <SegmentedControl {...forecast.metric} />
+        <SegmentedControl
+          {...forecast.metric}
+          options={forecast.metric.options.map((option) => ({
+            ...option,
+            icon: <WeatherIcon name={METRIC_ICON[option.value]} size={18} />,
+          }))}
+        />
         {heatmap.status === 'ready' && <HeatmapLegend metric={forecast.metric.value} className={styles.legend} />}
       </div>
       {heatmap.status === 'loading' && (

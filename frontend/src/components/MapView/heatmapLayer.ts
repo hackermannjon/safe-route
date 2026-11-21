@@ -1,5 +1,5 @@
 import type { ImageSource, Map as MapLibreMap } from 'maplibre-gl';
-import type { HeatmapData, HeatmapMetric } from '../../lib/heatmap';
+import { PLAY_STEP_MS, type HeatmapData, type HeatmapMetric } from '../../lib/heatmap';
 import { FieldFrames, type Corners } from './heatmapField';
 import type { MapPalette } from './riskStyle';
 
@@ -10,8 +10,8 @@ import type { MapPalette } from './riskStyle';
 
 export const HEATMAP_LAYER = 'heatmap';
 
-/** Most of a playback step, so the field is always on its way to the next hour. */
-export const FADE_MS = 500;
+/** A whole playback step at a steady rate, so the field never stops between hours. */
+export const FADE_MS = PLAY_STEP_MS;
 
 const PLACEHOLDER: Corners = [
   [0, 1],
@@ -81,8 +81,6 @@ export function blendPixels(
     out[k + 3] = alpha;
   }
 }
-
-const smoothstep = (t: number) => t * t * (3 - 2 * t);
 
 interface Fade {
   from: Uint8ClampedArray;
@@ -180,7 +178,7 @@ export class HeatmapRenderer {
         this.put(fade.to);
         return;
       }
-      blendPixels(fade.from, fade.to.data, fade.changed, smoothstep(t), scratch.data);
+      blendPixels(fade.from, fade.to.data, fade.changed, t, scratch.data);
       this.put(scratch);
       fade.raf = requestAnimationFrame(tick);
     };

@@ -92,7 +92,12 @@ export const ResultsContent = memo(function ResultsContent({
           <h2 id="checkpoints-heading" className={styles.heading}>
             Checkpoints · {selected.label}
           </h2>
-          <CheckpointTimeline items={timeline} selectedIndex={selectedCheckpoint} onSelect={onSelectCheckpoint} />
+          <CheckpointTimeline
+            key={selected.id}
+            items={timeline}
+            selectedIndex={selectedCheckpoint}
+            onSelect={onSelectCheckpoint}
+          />
         </section>
       )}
     </div>

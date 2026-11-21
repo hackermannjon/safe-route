@@ -15,3 +15,16 @@
   min-width: 4px;
   height: 100%;
 }
+
+.bar {
+  animation: fill 520ms var(--ease-standard) both;
+}
+
+@keyframes fill {
+  from {
+    clip-path: inset(0 100% 0 0 round var(--radius-pill));
+  }
+  to {
+    clip-path: inset(0 0 0 0 round var(--radius-pill));
+  }
+}

@@ -11,10 +11,31 @@
   background: var(--surface-1);
   box-shadow: var(--shadow-float);
   cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease,
+    transform var(--duration-fast) ease;
 }
 
-.toggle:hover {
-  background: var(--surface-2);
+@media (hover: hover) {
+  .toggle:hover {
+    background: var(--surface-2);
+  }
+}
+
+.toggle:active {
+  transform: scale(0.94);
+}
+
+.icon {
+  display: flex;
+  animation: turn 360ms var(--ease-standard) both;
+}
+
+@keyframes turn {
+  from {
+    opacity: 0;
+    transform: rotate(-90deg) scale(0.6);
+  }
 }
 
 .toggle:focus-visible {

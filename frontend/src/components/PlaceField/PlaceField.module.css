@@ -61,9 +61,14 @@
   cursor: pointer;
 }
 
-.option:hover,
 .option[aria-selected='true'] {
   background: var(--accent-soft);
+}
+
+@media (hover: hover) {
+  .option:hover {
+    background: var(--accent-soft);
+  }
 }
 
 .status {

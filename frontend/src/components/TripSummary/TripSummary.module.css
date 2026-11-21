@@ -4,8 +4,9 @@
   padding: var(--space-4);
   border-radius: var(--radius-md);
   color: var(--ink);
-  background: var(--accent-soft);
-  box-shadow: inset 0 0 0 1px var(--accent);
+  /* Not the selected card's fill: next to the list it would read as a second selection. */
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .head {

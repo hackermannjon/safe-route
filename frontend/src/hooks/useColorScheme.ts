@@ -1,4 +1,5 @@
 import { useCallback, useLayoutEffect } from 'react';
+import { flushSync } from 'react-dom';
 import { useThemeStore, type ColorScheme } from '../stores/useThemeStore';
 import { useMediaQuery } from './useMediaQuery';
 
@@ -21,6 +22,15 @@ export function useColorScheme(): { theme: ColorScheme; toggleTheme: () => void 
     else delete root.dataset.theme;
   }, [choice]);
 
-  const toggleTheme = useCallback(() => choose(theme === 'dark' ? 'light' : 'dark'), [choose, theme]);
+  const toggleTheme = useCallback(() => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (!document.startViewTransition || still) {
+      choose(next);
+      return;
+    }
+    // The snapshot is taken once the callback returns, so the new palette must be committed by then.
+    document.startViewTransition(() => flushSync(() => choose(next)));
+  }, [choose, theme]);
   return { theme, toggleTheme };
 }

@@ -10,7 +10,7 @@ import type {
   Route,
   Weather,
 } from '../../../types/api';
-import { riskSummary, useTripPlannerViewModel, weatherSummary } from '../useTripPlannerViewModel';
+import { checkpointSky, riskSummary, useTripPlannerViewModel, weatherSummary } from '../useTripPlannerViewModel';
 import { clearPlaceSearchCache } from '../usePlaceSearch';
 import { useForecastViewModel } from '../useForecastViewModel';
 import { useTripStore } from '../../../stores';
@@ -436,6 +436,7 @@ describe('useTripPlannerViewModel', () => {
         place: 'Start · Mile 0',
         eta: 'Sat 8:00 AM',
         weather: 'Overcast · Wind 10 mph · 31°F',
+        sky: 'cloudy',
         level: 'LOW',
         risk: 'Low',
         loadRule: null,
@@ -446,6 +447,7 @@ describe('useTripPlannerViewModel', () => {
         place: 'Mile 500',
         eta: 'Sat 3:45 PM',
         weather: 'Overcast · Wind 47 mph · 31°F',
+        sky: 'cloudy',
         level: 'NO_TRAVEL',
         risk: 'No Travel · Wind with this load',
         loadRule: 'Wind 45 to under 55 mph with cargo over 30,000 lb',
@@ -456,6 +458,7 @@ describe('useTripPlannerViewModel', () => {
         place: 'Arrive · Mile 1,017',
         eta: 'Sat 11:45 PM',
         weather: 'Overcast · Wind 12 mph · 31°F',
+        sky: 'cloudy',
         level: 'LOW',
         risk: 'Low',
         loadRule: null,
@@ -779,6 +782,26 @@ describe('riskSummary', () => {
 
   it('names no factor when the level is Low', () => {
     expect(riskSummary({ level: 'LOW', factor: 'wind' })).toBe('Low');
+  });
+});
+
+describe('checkpointSky', () => {
+  const at = (code: number | null, eta: string) => ({
+    lat: 32.78,
+    lon: -79.93,
+    eta,
+    weather: { wind_mph: 5, gust_mph: 9, rain_in_h: 0, snow_in_h: 0, temp_f: 60, weather_code: code },
+  });
+
+  it('shows the moon for a clear sky after dark at the checkpoint, and the sun by day', () => {
+    expect(checkpointSky(at(0, '2026-11-21T17:00:00Z'))).toBe('clear');
+    expect(checkpointSky(at(0, '2026-11-22T03:00:00Z'))).toBe('clear-night');
+    expect(checkpointSky(at(2, '2026-11-22T03:00:00Z'))).toBe('partly-night');
+  });
+
+  it('keeps clouds and rain the same day and night, and has no icon without a code', () => {
+    expect(checkpointSky(at(63, '2026-11-22T03:00:00Z'))).toBe('rain');
+    expect(checkpointSky(at(null, '2026-11-21T17:00:00Z'))).toBeNull();
   });
 });
 

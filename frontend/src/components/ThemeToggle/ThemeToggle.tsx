@@ -18,7 +18,9 @@ export function ThemeToggle({ theme, onToggle, className }: ThemeToggleProps) {
       title={`Switch to ${next} theme`}
       onClick={onToggle}
     >
-      <Icon name={next === 'light' ? 'sun' : 'moon'} />
+      <span key={next} className={styles.icon}>
+        <Icon name={next === 'light' ? 'sun' : 'moon'} />
+      </span>
     </button>
   );
 }

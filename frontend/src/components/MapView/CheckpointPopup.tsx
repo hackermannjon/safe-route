@@ -1,8 +1,10 @@
 import { formatEta, formatMilepost, formatRate, formatTemp, formatWind } from '../../lib/format';
 import { factorLabel } from '../../lib/risk';
-import { weatherCondition } from '../../lib/weatherCodes';
+import { isNight } from '../../lib/daylight';
+import { weatherCondition, weatherSky } from '../../lib/weatherCodes';
 import type { Checkpoint, RiskFactor } from '../../types/api';
 import { RiskBadge } from '../RiskBadge';
+import { WeatherIcon, skyIcon, type WeatherIconName } from '../WeatherIcon';
 import styles from './CheckpointPopup.module.css';
 
 export interface CheckpointPopupProps {
@@ -20,6 +22,7 @@ const DRIVING_READING: Record<RiskFactor, ReadingName> = { wind: 'Wind', load: '
 export function CheckpointPopup({ checkpoint, routeLabel, onClose }: CheckpointPopupProps) {
   const { weather } = checkpoint;
   const condition = weatherCondition(weather.weather_code);
+  const sky = weatherSky(weather.weather_code);
   const driver = DRIVING_READING[checkpoint.factor];
   return (
     <section className={styles.card} aria-label={`${formatMilepost(checkpoint.mile)} details`}>
@@ -39,7 +42,18 @@ export function CheckpointPopup({ checkpoint, routeLabel, onClose }: CheckpointP
 
       <p className={styles.sub}>
         <span>{routeLabel}</span>
-        {condition && <span className={styles.condition}>{condition}</span>}
+        {condition && (
+          <span className={styles.condition}>
+            {sky && (
+              <WeatherIcon
+                name={skyIcon(sky, isNight(checkpoint.lat, checkpoint.lon, checkpoint.eta))}
+                size={22}
+                className={styles.sky}
+              />
+            )}
+            {condition}
+          </span>
+        )}
       </p>
 
       <div className={styles.risk}>
@@ -49,20 +63,28 @@ export function CheckpointPopup({ checkpoint, routeLabel, onClose }: CheckpointP
       {checkpoint.load_rule && <p className={styles.rule}>Load rule: {checkpoint.load_rule}</p>}
 
       <dl className={styles.grid}>
-        <Reading label="Wind" value={formatWind(weather.wind_mph)} main={driver === 'Wind'} />
-        <Reading label="Gusts" value={formatWind(weather.gust_mph)} />
-        <Reading label="Temp" value={formatTemp(weather.temp_f)} />
-        <Reading label="Rain" value={formatRate(weather.rain_in_h)} main={driver === 'Rain'} />
-        <Reading label="Snow" value={formatRate(weather.snow_in_h)} main={driver === 'Snow'} />
+        <Reading icon="wind" label="Wind" value={formatWind(weather.wind_mph)} main={driver === 'Wind'} />
+        <Reading icon="gust" label="Gusts" value={formatWind(weather.gust_mph)} />
+        <Reading icon="temp" label="Temp" value={formatTemp(weather.temp_f)} />
+        <Reading icon="drop" label="Rain" value={formatRate(weather.rain_in_h)} main={driver === 'Rain'} />
+        <Reading icon="flake" label="Snow" value={formatRate(weather.snow_in_h)} main={driver === 'Snow'} />
       </dl>
     </section>
   );
 }
 
-function Reading({ label, value, main = false }: { label: string; value: string; main?: boolean }) {
+interface ReadingProps {
+  icon: WeatherIconName;
+  label: string;
+  value: string;
+  main?: boolean;
+}
+
+function Reading({ icon, label, value, main = false }: ReadingProps) {
   return (
     <div className={main ? `${styles.cell} ${styles.main}` : styles.cell}>
       <dt>
+        <WeatherIcon name={icon} size={14} className={styles.readingIcon} />
         {label}
         {main && <span className={styles.srOnly}>, sets the level</span>}
       </dt>

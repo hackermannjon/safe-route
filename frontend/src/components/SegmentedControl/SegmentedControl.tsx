@@ -1,9 +1,10 @@
-import { useId } from 'react';
+import { useId, type ReactNode } from 'react';
 import styles from './SegmentedControl.module.css';
 
 export interface SegmentOption<T extends string | number> {
   value: T;
   label: string;
+  icon?: ReactNode;
 }
 
 export interface SegmentedControlProps<T extends string | number> {
@@ -40,7 +41,10 @@ export function SegmentedControl<T extends string | number>({
               aria-describedby={error ? errorId : undefined}
               onChange={() => onChange(option.value)}
             />
-            <span className={styles.text}>{option.label}</span>
+            <span className={styles.text}>
+              {option.icon}
+              {option.label}
+            </span>
           </label>
         ))}
       </div>

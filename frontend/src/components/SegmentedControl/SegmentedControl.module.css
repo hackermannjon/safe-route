@@ -38,7 +38,9 @@
   min-height: 42px;
   border-radius: var(--radius-pill);
   cursor: pointer;
-  transition: background-color var(--duration-fast) ease;
+  transition:
+    background-color var(--duration-base) var(--ease-standard),
+    box-shadow var(--duration-base) var(--ease-standard);
 }
 
 /* With the track's padding the whole control is 48px tall. */
@@ -53,10 +55,18 @@
 }
 
 .text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font: var(--type-body);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--ink-muted);
+  transition: color var(--duration-fast) ease;
+}
+
+.text > svg {
+  flex: none;
 }
 
 @media (hover: hover) {

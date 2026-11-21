@@ -18,7 +18,7 @@ import {
 } from './checkpoints';
 import { HeatmapRenderer, installHeatmapLayers } from './heatmapLayer';
 import styles from './MapView.module.css';
-import { popupCentered, popupFit, type ScreenPoint } from './popupPlacement';
+import { popupCentered } from './popupPlacement';
 import { addGlyphImages, readMapPalette, type MapPalette } from './riskStyle';
 import {
   ROUTE_LAYER,
@@ -66,7 +66,7 @@ export interface MapHeatmap {
 
 const NO_CHECKPOINTS: readonly Checkpoint[] = [];
 /**
- * A checkpoint picked from the list is always shown at this zoom, in or out, so stepping through
+ * A checkpoint picked from the list or the map is always shown at this zoom, in or out, so stepping through
  * the list keeps one scale: close enough to tell the road, wide enough to see the next stops.
  */
 export const CHECKPOINT_ZOOM = 9;
@@ -102,7 +102,7 @@ function supportsWebGL(): boolean {
 }
 
 /** Most of a playback step, so the truck rests a moment at each hour. */
-const TRUCK_GLIDE_MS = PLAY_STEP_MS * 0.8;
+const TRUCK_GLIDE_MS = PLAY_STEP_MS;
 
 /** Pixels from the map's centre to the centre of the area the panels leave free. */
 const freeCentreOffset = (pad: MapPadding): [number, number] => [
@@ -185,8 +185,6 @@ export function MapView({
     heatmap,
     padding,
   });
-  // A checkpoint picked on the map is already in view; the camera moves only if its popup needs room.
-  const pickedOnMap = useRef<number | null>(null);
   const [webgl] = useState(supportsWebGL);
 
   useEffect(() => {
@@ -227,6 +225,7 @@ export function MapView({
       style: BASEMAP_STYLE[themeRef.current],
       bounds: INITIAL_BOUNDS,
       attributionControl: false,
+      fadeDuration: latest.current.reducedMotion ? 0 : 300,
     });
     // OpenFreeMap and OpenStreetMap require visible attribution; narrow maps get the compact form.
     map.addControl(new AttributionControl(), 'bottom-right');
@@ -255,7 +254,6 @@ export function MapView({
       // Dots sit on the selected route, so they win over the route line under them.
       const index = pickCheckpoint(map, event.point);
       if (index !== null) {
-        pickedOnMap.current = index;
         selectCheckpoint?.(index);
         return;
       }
@@ -383,13 +381,13 @@ export function MapView({
       follow(target);
       return;
     }
-    // Between hours the truck glides in a straight line; an hour is a few pixels at trip scale.
+    // Between hours the truck glides in a straight line at a steady pace that lasts the whole step,
+    // so playback never pauses at an hour; an hour is a few pixels at trip scale.
     const from = marker.getLngLat();
     const started = performance.now();
     const step = (now: number) => {
       const t = Math.min(1, (now - started) / TRUCK_GLIDE_MS);
-      const ease = t * (2 - t);
-      const at: [number, number] = [from.lng + (target[0] - from.lng) * ease, from.lat + (target[1] - from.lat) * ease];
+      const at: [number, number] = [from.lng + (target[0] - from.lng) * t, from.lat + (target[1] - from.lat) * t];
       marker.setLngLat(at);
       follow(at);
       glideRef.current = t < 1 ? requestAnimationFrame(step) : null;
@@ -450,8 +448,6 @@ export function MapView({
     const popup = popupRef.current;
     if (!map || !popup || !styleVersion) return;
     setCheckpointFocus(map, selectedCheckpoint);
-    const fromMap = pickedOnMap.current === selectedCheckpoint;
-    pickedOnMap.current = null;
     const target = checkpoints.find((cp) => cp.index === selectedCheckpoint);
     if (!target) {
       popup.remove();
@@ -469,22 +465,14 @@ export function MapView({
       width: Math.max(0, width - pad.left - pad.right),
       height: Math.max(0, height - pad.top - pad.bottom - ATTRIBUTION_CLEARANCE_PX),
     };
-    const center = (to: ScreenPoint, zoom?: number) =>
-      map.easeTo({
-        center: [target.lon, target.lat],
-        zoom,
-        // Offset rather than camera padding, which would persist and skew later fits.
-        offset: [to.x + pad.left - width / 2, to.y + pad.top - height / 2],
-        duration: latest.current.reducedMotion ? 0 : EASE_MS,
-      });
-    if (fromMap) {
-      // A tapped dot is in view; move only if its popup would spill out of the free area.
-      const at = map.project([target.lon, target.lat]);
-      const to = popupFit({ x: at.x - pad.left, y: at.y - pad.top }, box, view);
-      if (to) center(to);
-      return;
-    }
-    center(popupCentered(box, view), CHECKPOINT_ZOOM);
+    const to = popupCentered(box, view);
+    map.easeTo({
+      center: [target.lon, target.lat],
+      zoom: CHECKPOINT_ZOOM,
+      // Offset rather than camera padding, which would persist and skew later fits.
+      offset: [to.x + pad.left - width / 2, to.y + pad.top - height / 2],
+      duration: latest.current.reducedMotion ? 0 : EASE_MS,
+    });
   }, [selectedCheckpoint, checkpoints, styleVersion]);
 
   const popupOpen = focused !== null;
@@ -525,7 +513,12 @@ export function MapView({
       {truck && createPortal(<TruckIcon arrived={truck.arrived} />, truckNode)}
       {focused &&
         createPortal(
-          <CheckpointPopup checkpoint={focused} routeLabel={routeLabel} onClose={onCloseCheckpoint} />,
+          <CheckpointPopup
+            key={`${selectedRouteId}:${focused.index}`}
+            checkpoint={focused}
+            routeLabel={routeLabel}
+            onClose={onCloseCheckpoint}
+          />,
           popupNode,
         )}
     </>

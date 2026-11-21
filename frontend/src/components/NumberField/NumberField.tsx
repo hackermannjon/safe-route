@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef } from 'react';
+import { useId, useLayoutEffect, useRef, type ReactNode } from 'react';
 import styles from './NumberField.module.css';
 import { parseWholeNumber } from './parseWholeNumber';
 
@@ -8,6 +8,8 @@ export interface NumberFieldProps {
   onChange: (value: number | null) => void;
   /** Shown inside the field after the number, e.g. "lb". */
   unit?: string;
+  /** Decorative, shown at the start of the field. */
+  icon?: ReactNode;
   placeholder?: string;
   hint?: string;
   error?: string;
@@ -33,7 +35,7 @@ function caretAfterDigits(text: string, digits: number): number {
  * Whole numbers with live thousands separators. A text input with inputMode="numeric" rather
  * than type="number", which cannot show separators and quietly accepts "e" and wheel scrolls.
  */
-export function NumberField({ label, value, onChange, unit, placeholder, hint, error }: NumberFieldProps) {
+export function NumberField({ label, value, onChange, unit, icon, placeholder, hint, error }: NumberFieldProps) {
   const id = useId();
   const messageId = `${id}-message`;
   const message = error ?? hint;
@@ -57,10 +59,15 @@ export function NumberField({ label, value, onChange, unit, placeholder, hint, e
         {label}
       </label>
       <div className={styles.control}>
+        {icon && (
+          <span className={styles.icon} aria-hidden="true">
+            {icon}
+          </span>
+        )}
         <input
           ref={inputRef}
           id={id}
-          className={styles.input}
+          className={icon ? `${styles.input} ${styles.withIcon}` : styles.input}
           type="text"
           inputMode="numeric"
           autoComplete="off"

@@ -1,7 +1,8 @@
-import { memo, useEffect, useRef } from 'react';
+import { memo, useEffect, useRef, type CSSProperties } from 'react';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import type { RiskLevel } from '../../types/api';
 import { RiskGlyph } from '../RiskGlyph';
+import { WeatherIcon, type WeatherIconName } from '../WeatherIcon';
 import styles from './CheckpointTimeline.module.css';
 
 export interface TimelineItem {
@@ -12,6 +13,8 @@ export interface TimelineItem {
   eta: string;
   /** Forecast at the ETA in a few words, e.g. "Light snow · Wind 12 mph · Snow 0.05 in/h · 31°F". */
   weather: string;
+  /** The sky at the ETA, drawn before the forecast words. */
+  sky?: WeatherIconName | null;
   level: RiskLevel;
   /** The level in words with what set it, e.g. "High · Rain". */
   risk: string;
@@ -51,8 +54,13 @@ export const CheckpointTimeline = memo(function CheckpointTimeline({
 
   return (
     <ol className={styles.list} aria-label={label}>
-      {items.map((item) => (
-        <li key={item.index} className={styles.item} data-kind={item.kind}>
+      {items.map((item, position) => (
+        <li
+          key={item.index}
+          className={styles.item}
+          data-kind={item.kind}
+          style={{ '--i': Math.min(position, 12) } as CSSProperties}
+        >
           <button
             ref={(el) => {
               if (el) rows.current.set(item.index, el);
@@ -71,7 +79,10 @@ export const CheckpointTimeline = memo(function CheckpointTimeline({
             <span className={styles.risk} data-level={item.level}>
               {item.risk}
             </span>
-            <span className={styles.weather}>{item.weather}</span>
+            <span className={styles.weather}>
+              {item.sky && <WeatherIcon name={item.sky} size={16} className={styles.sky} />}
+              <span>{item.weather}</span>
+            </span>
             {item.loadRule && <span className={styles.rule}>Load rule: {item.loadRule}</span>}
           </button>
         </li>

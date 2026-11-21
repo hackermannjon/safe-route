@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import type { RiskLevel } from '../../types/api';
 import { RiskBadge } from '../RiskBadge';
 import { RiskBar } from '../RiskBar';
@@ -33,13 +34,13 @@ export interface RouteListProps {
 export function RouteList({ routes, selectedId, onSelect }: RouteListProps) {
   return (
     <ul className={styles.list} aria-label="Routes">
-      {routes.map((route) => {
+      {routes.map((route, position) => {
         const selected = route.id === selectedId;
         const className = [styles.card, route.recommended && styles.recommended, selected && styles.selected]
           .filter(Boolean)
           .join(' ');
         return (
-          <li key={route.id} className={styles.item}>
+          <li key={route.id} className={styles.item} style={{ '--i': position } as CSSProperties}>
             <button type="button" className={className} aria-pressed={selected} onClick={() => onSelect(route.id)}>
               <span className={styles.head}>
                 <span className={styles.name}>

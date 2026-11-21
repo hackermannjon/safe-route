@@ -9,6 +9,8 @@
 
 .item {
   position: relative;
+  animation: rise 280ms var(--ease-standard) both;
+  animation-delay: calc(var(--i, 0) * 24ms);
 }
 
 /* The rail joins the dots; it starts at the first and stops at the last. */
@@ -114,6 +116,9 @@
 
 .weather {
   grid-area: weather;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
   font: var(--type-caption);
   font-size: 13px;
   font-variant-numeric: tabular-nums;
@@ -130,4 +135,18 @@
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* Nudged onto the first line's x-height, so a wrapped forecast hangs beside it. */
+.sky {
+  flex: none;
+  margin-top: 1px;
+  color: var(--ink);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
 }

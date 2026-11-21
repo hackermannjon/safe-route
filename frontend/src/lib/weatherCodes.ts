@@ -36,3 +36,28 @@ export function weatherCondition(code: number | null | undefined): string | null
   if (code === null || code === undefined) return null;
   return CONDITIONS[code] ?? null;
 }
+
+/** The sky a code describes, for its icon. Coarser than the condition text on purpose. */
+export type WeatherSky = 'clear' | 'partly' | 'cloudy' | 'fog' | 'drizzle' | 'rain' | 'freezing' | 'snow' | 'thunder';
+
+const SKY_RANGES: ReadonlyArray<readonly [WeatherSky, readonly number[]]> = [
+  ['clear', [0, 1]],
+  ['partly', [2]],
+  ['cloudy', [3]],
+  ['fog', [45, 48]],
+  ['drizzle', [51, 53, 55]],
+  ['freezing', [56, 57, 66, 67]],
+  ['rain', [61, 63, 65, 80, 81, 82]],
+  ['snow', [71, 73, 75, 77, 85, 86]],
+  ['thunder', [95, 96, 99]],
+];
+
+const SKY: ReadonlyMap<number, WeatherSky> = new Map(
+  SKY_RANGES.flatMap(([sky, codes]) => codes.map((code) => [code, sky] as const)),
+);
+
+/** "rain" for 63; null when the code is missing or not one Open-Meteo uses. */
+export function weatherSky(code: number | null | undefined): WeatherSky | null {
+  if (code === null || code === undefined) return null;
+  return SKY.get(code) ?? null;
+}

@@ -7,6 +7,8 @@
   font: var(--type-body);
   font-size: 13px;
   line-height: 18px;
+  transform-origin: 50% 100%;
+  animation: pop var(--duration-base) var(--ease-standard) both;
 }
 
 .head {
@@ -53,9 +55,11 @@
   inset: -8px;
 }
 
-.close:hover {
-  color: var(--ink);
-  background: var(--surface-2);
+@media (hover: hover) {
+  .close:hover {
+    color: var(--ink);
+    background: var(--surface-2);
+  }
 }
 
 .sub {
@@ -67,9 +71,17 @@
 }
 
 .condition {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--ink);
   font-weight: 600;
   text-align: right;
+}
+
+.sky {
+  flex: none;
+  margin: -3px 0;
 }
 
 .grid {
@@ -82,8 +94,15 @@
 }
 
 .cell dt {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font: var(--type-caption);
   color: var(--ink-muted);
+}
+
+.readingIcon {
+  flex: none;
 }
 
 .cell dd {
@@ -127,4 +146,11 @@
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
 }

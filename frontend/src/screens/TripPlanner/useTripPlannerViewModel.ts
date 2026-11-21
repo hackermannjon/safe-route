@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { SheetSnap } from '../../components/BottomSheet';
 import type { TimelineItem } from '../../components/CheckpointTimeline';
+import { skyIcon, type WeatherIconName } from '../../components/WeatherIcon';
 import {
   formatDuration,
   formatEta,
@@ -11,9 +12,10 @@ import {
   formatWind,
   isMeasurable,
 } from '../../lib/format';
+import { isNight } from '../../lib/daylight';
 import { PLAY_STEP_MS, decodeHeatmap } from '../../lib/heatmap';
 import { factorLabel, riskLabel } from '../../lib/risk';
-import { weatherCondition } from '../../lib/weatherCodes';
+import { weatherCondition, weatherSky } from '../../lib/weatherCodes';
 import { ApiError, api, isAbortError } from '../../services/api';
 import type {
   Checkpoint,
@@ -165,6 +167,12 @@ export function riskSummary(checkpoint: Pick<Checkpoint, 'level' | 'factor'>): s
   return checkpoint.level === 'LOW' ? label : `${label} · ${factorLabel(checkpoint.factor)}`;
 }
 
+/** The checkpoint's sky icon, with a moon after sunset at that place and hour. */
+export function checkpointSky(cp: Pick<Checkpoint, 'lat' | 'lon' | 'eta' | 'weather'>): WeatherIconName | null {
+  const sky = weatherSky(cp.weather.weather_code);
+  return sky && skyIcon(sky, isNight(cp.lat, cp.lon, cp.eta));
+}
+
 function timelineItems(checkpoints: readonly Checkpoint[]): TimelineItem[] {
   const last = checkpoints.length - 1;
   return checkpoints.map((cp, i) => ({
@@ -172,6 +180,7 @@ function timelineItems(checkpoints: readonly Checkpoint[]): TimelineItem[] {
     place: i === 0 ? 'Start · Mile 0' : i === last ? `Arrive · ${formatMilepost(cp.mile)}` : formatMilepost(cp.mile),
     eta: formatEta(cp.eta),
     weather: weatherSummary(cp.weather),
+    sky: checkpointSky(cp),
     level: cp.level,
     risk: riskSummary(cp),
     loadRule: cp.load_rule,

@@ -3,6 +3,7 @@ import { DateTimeField } from '../../components/DateTimeField';
 import { NumberField } from '../../components/NumberField';
 import { PlaceField } from '../../components/PlaceField';
 import { SegmentedControl } from '../../components/SegmentedControl';
+import { WeatherIcon } from '../../components/WeatherIcon';
 import type { TripPlannerViewModel } from './useTripPlannerViewModel';
 import styles from './TripForm.module.css';
 
@@ -18,7 +19,7 @@ export function TripForm({ vm, onCancel }: TripFormProps) {
       <PlaceField label="From" placeholder="City or address" {...vm.origin} />
       <PlaceField label="To" placeholder="City or address" {...vm.destination} />
       <DateTimeField label="Departure" {...vm.departure} />
-      <NumberField label="Cargo weight" {...vm.cargo} />
+      <NumberField label="Cargo weight" icon={<WeatherIcon name="weight" size={20} />} {...vm.cargo} />
       <SegmentedControl label="Checkpoint every" {...vm.spacing} />
       <div className={styles.actions}>
         <Button type="submit" block loading={vm.planning} loadingLabel="Finding routes">

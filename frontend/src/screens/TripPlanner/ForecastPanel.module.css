@@ -7,6 +7,7 @@
   background: var(--surface-1);
   box-shadow: var(--shadow-float);
   color: var(--ink);
+  animation: rise 280ms var(--ease-standard) both;
 }
 
 /* Metric picker and its scale side by side when there is room, stacked when not. */
@@ -73,4 +74,19 @@
 
 .toggle:focus-visible {
   box-shadow: var(--shadow-focus), var(--shadow-float);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+.toggle {
+  transition: transform var(--duration-fast) ease;
+}
+
+.toggle:active {
+  transform: scale(0.96);
 }

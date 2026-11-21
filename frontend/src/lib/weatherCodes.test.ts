@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { weatherCondition } from './weatherCodes';
+import { weatherCondition, weatherSky } from './weatherCodes';
 
 describe('weatherCondition', () => {
   it.each([
@@ -29,5 +29,36 @@ describe('weatherCondition', () => {
     expect(weatherCondition(undefined)).toBeNull();
     expect(weatherCondition(4)).toBeNull();
     expect(weatherCondition(100)).toBeNull();
+  });
+});
+
+describe('weatherSky', () => {
+  it.each([
+    [0, 'clear'],
+    [1, 'clear'],
+    [2, 'partly'],
+    [3, 'cloudy'],
+    [48, 'fog'],
+    [53, 'drizzle'],
+    [57, 'freezing'],
+    [66, 'freezing'],
+    [65, 'rain'],
+    [81, 'rain'],
+    [77, 'snow'],
+    [85, 'snow'],
+    [96, 'thunder'],
+  ])('code %d draws a %s sky', (code, sky) => {
+    expect(weatherSky(code)).toBe(sky);
+  });
+
+  it('has an icon for every code it has a name for', () => {
+    for (let code = 0; code < 100; code++) {
+      expect(weatherSky(code) === null).toBe(weatherCondition(code) === null);
+    }
+  });
+
+  it('is null without a known code', () => {
+    expect(weatherSky(null)).toBeNull();
+    expect(weatherSky(4)).toBeNull();
   });
 });

@@ -54,8 +54,8 @@
 }
 
 .status[data-arrived] {
-  color: var(--risk-ink);
-  background: var(--risk-low);
+  color: var(--accent-ink);
+  background: var(--accent);
 }
 
 /* The thumb's centre travels from half a thumb in from each end. */
@@ -129,7 +129,7 @@
   height: 18px;
   margin-left: -2px;
   border-radius: 2px;
-  background: var(--risk-low);
+  background: var(--accent);
   pointer-events: none;
 }
 
@@ -157,4 +157,12 @@
   transform: none;
   left: auto;
   right: 0;
+}
+
+.play {
+  transition: transform var(--duration-fast) ease;
+}
+
+.play:active {
+  transform: scale(0.96);
 }

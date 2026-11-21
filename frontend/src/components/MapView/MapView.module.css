@@ -89,7 +89,7 @@
 
 .popup :global(.maplibregl-popup-content) {
   padding: var(--space-3);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--surface-1);
   box-shadow: var(--shadow-float);
 }
@@ -121,7 +121,7 @@
 }
 
 .truck[data-arrived] {
-  border-color: var(--risk-low);
-  color: var(--risk-ink);
-  background: var(--risk-low);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  background: var(--accent);
 }
