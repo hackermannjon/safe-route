@@ -153,6 +153,25 @@ def test_retries_rate_limit_and_server_errors_once(status):
     assert sample.wind_mph == pytest.approx(42.04)
 
 
+@pytest.mark.parametrize(
+    ("reason", "says"),
+    [
+        ("Daily API request limit exceeded. Please try again tomorrow.", "Try again tomorrow."),
+        (
+            "Hourly API request limit exceeded. Please try again in the next hour.",
+            "within the hour",
+        ),
+    ],
+)
+def test_a_spent_quota_is_reported_at_once_instead_of_retried(reason, says):
+    spent = httpx.Response(429, json={"error": True, "reason": reason})
+    with respx.mock as mock:
+        route = mock.get(URL).mock(return_value=spent)
+        with pytest.raises(UpstreamError, match=says):
+            weather.fetch_for_points([(41.9, -87.6, T0)])
+    assert route.call_count == 1
+
+
 def test_retries_network_errors():
     with respx.mock as mock:
         route = mock.get(URL).mock(side_effect=[httpx.ConnectTimeout("slow"), fake_forecast])

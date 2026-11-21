@@ -54,6 +54,11 @@ HOURLY_VARS = (
 )
 
 UNAVAILABLE = "Weather forecast is unavailable right now. Try again shortly."
+QUOTA_SPENT = {
+    "daily": "The free weather service's daily request limit has been reached. Try again tomorrow.",
+    "hourly": "The free weather service's hourly request limit has been reached. "
+    "Try again within the hour.",
+}
 
 Cell = tuple[float, float]
 Key = tuple[Cell, datetime]
@@ -210,12 +215,25 @@ async def _fetch_batch(
             response = None
         if response is not None and response.status_code < 400:
             return _parse(response, cells)
+        if response is not None and response.status_code == 429:
+            # A spent daily or hourly quota will not come back after a short backoff.
+            spent = _spent_quota(response)
+            if spent:
+                raise UpstreamError(QUOTA_SPENT[spent])
         if response is not None and response.status_code != 429 and response.status_code < 500:
             # A 4xx other than rate limiting is a request we built wrong; retrying will not help.
             raise UpstreamError(UNAVAILABLE)
         if attempt + 1 < MAX_ATTEMPTS:
             await asyncio.sleep(BACKOFF_S * 2**attempt)
     raise UpstreamError(UNAVAILABLE)
+
+
+def _spent_quota(response: httpx.Response) -> str | None:
+    try:
+        reason = str(response.json().get("reason", "")).lower()
+    except (ValueError, AttributeError):
+        return None
+    return next((window for window in QUOTA_SPENT if window in reason), None)
 
 
 def _parse(response: httpx.Response, cells: list[Cell]) -> dict[Cell, Series]:
