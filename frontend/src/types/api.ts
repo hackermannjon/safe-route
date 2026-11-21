@@ -70,9 +70,14 @@ export interface SegmentProperties {
 }
 
 export interface Route {
-  /** "A", "B", "C", fastest first. */
+  /** "A", "B", "C", fastest first. A name, not a rank: it stays put when the ranking changes. */
   id: string;
   label: string;
+  /** 1 is the recommended route. */
+  rank: number;
+  recommended: boolean;
+  /** One sentence on why the route ranks where it does, e.g. "12 more miles in High risk than Route B." */
+  rank_reason: string;
   /** Main roads in driving order, e.g. ["I-88", "I-80", "I-76"]. */
   via: string[];
   distance_mi: number;
@@ -92,7 +97,9 @@ export interface PlanResponse {
   departure: string;
   cargo_lb: number;
   spacing_mi: SpacingMi;
-  /** Up to three distinct routes. */
+  /** Fewest miles in the worst conditions first, then the lowest average risk, then the fastest. */
+  recommended_route_id: string;
+  /** Up to three distinct routes, in id order; `rank` orders them. */
   routes: Route[];
   /** Plain-language caveats about the plan, e.g. when fewer than three routes exist. */
   notices: string[];

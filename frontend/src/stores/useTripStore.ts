@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { PlanResponse } from '../types/api';
+import type { PlanResponse, Route } from '../types/api';
 
 // The trip the screen is showing: the plan and what is selected on it. Form input stays in the
 // ViewModel; nothing else needs it.
@@ -17,6 +17,16 @@ export interface TripState {
   reset: () => void;
 }
 
+/** The API's pick, or the best-ranked route if that id is missing. */
+export function recommendedRoute(plan: Pick<PlanResponse, 'routes' | 'recommended_route_id'>): Route | null {
+  const named = plan.routes.find((route) => route.id === plan.recommended_route_id);
+  if (named) return named;
+  return plan.routes.reduce<Route | null>(
+    (best, route) => (best === null || route.rank < best.rank ? route : best),
+    null,
+  );
+}
+
 const INITIAL = {
   plan: null,
   selectedRouteId: null,
@@ -26,7 +36,7 @@ const INITIAL = {
 export const useTripStore = create<TripState>()((set, get) => ({
   ...INITIAL,
 
-  setPlan: (plan) => set({ plan, selectedRouteId: plan.routes[0]?.id ?? null, selectedCheckpoint: null }),
+  setPlan: (plan) => set({ plan, selectedRouteId: recommendedRoute(plan)?.id ?? null, selectedCheckpoint: null }),
 
   clearPlan: () => set({ plan: null, selectedRouteId: null, selectedCheckpoint: null }),
 

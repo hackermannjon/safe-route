@@ -82,8 +82,8 @@ export function MobileView({ vm, theme, onToggleTheme }: ViewProps) {
             onSnapChange={vm.setSheetSnap}
             header={<PeekHeader status={vm.status} error={vm.error} route={vm.selectedSummary} />}
           >
-            {/* The peek header already carries the status line. */}
-            <ResultsContent {...resultsProps(vm)} statusInHeader />
+            {/* The peek header already carries the route summary and the status line. */}
+            <ResultsContent {...resultsProps(vm)} summary={null} statusInHeader />
           </BottomSheet>
         )}
       </div>

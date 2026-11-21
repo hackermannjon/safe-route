@@ -4,6 +4,7 @@ import { ErrorBanner } from '../../components/ErrorBanner';
 import { Icon } from '../../components/Icon';
 import { LoadingState } from '../../components/LoadingState';
 import { RouteList, type RouteListItem } from '../../components/RouteList';
+import { TripSummary, type TripSummaryProps } from '../../components/TripSummary';
 import type { PlanStatus } from './useTripPlannerViewModel';
 import styles from './ResultsContent.module.css';
 
@@ -12,6 +13,7 @@ export interface ResultsContentProps {
   error: string | null;
   onRetry: () => void;
   onDismissError: () => void;
+  summary: Omit<TripSummaryProps, 'className'> | null;
   heading: string;
   notices: readonly string[];
   routes: RouteListItem[];
@@ -36,6 +38,7 @@ export const ResultsContent = memo(function ResultsContent({
   error,
   onRetry,
   onDismissError,
+  summary,
   heading,
   notices,
   routes,
@@ -67,6 +70,7 @@ export const ResultsContent = memo(function ResultsContent({
 
   return (
     <div className={styles.results}>
+      {summary && <TripSummary {...summary} />}
       {notices.length > 0 && (
         <ul className={styles.notices}>
           {notices.map((notice) => (

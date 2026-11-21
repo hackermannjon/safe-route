@@ -8,6 +8,9 @@ function route(id: string, coordinates: GeoJSON.Position[]): Route {
   return {
     id,
     label: `Route ${id}`,
+    rank: 1,
+    recommended: true,
+    rank_reason: '',
     via: [],
     distance_mi: 1,
     duration_s: 1,

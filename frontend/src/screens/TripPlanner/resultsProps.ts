@@ -8,6 +8,7 @@ export function resultsProps(vm: TripPlannerViewModel): ResultsContentProps {
     error: vm.error,
     onRetry: vm.retry,
     onDismissError: vm.dismissError,
+    summary: vm.summary,
     heading: vm.routesHeading,
     notices: vm.notices,
     routes: vm.summaries,

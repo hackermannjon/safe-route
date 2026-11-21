@@ -41,12 +41,16 @@ export function PeekHeader({ status, error, route }: PeekHeaderProps) {
   return (
     <div className={styles.peek}>
       <div className={styles.top}>
-        <span className={styles.title}>{route.label}</span>
+        <span className={styles.title}>
+          {route.label}
+          {route.recommended && <span className={styles.recommended}>Recommended</span>}
+        </span>
         <RiskBadge level={route.risk.level} peak />
       </div>
       <p className={styles.stats}>
         {route.distance} · {route.duration} · {route.arrival}
       </p>
+      {route.reason && <p className={styles.line}>{route.reason}</p>}
     </div>
   );
 }

@@ -37,7 +37,13 @@ import {
   toLocalInputValue,
   zoneName,
 } from './formModel';
-import { selectPlan, selectSelectedCheckpoint, selectSelectedRouteId, useTripStore } from '../../stores';
+import {
+  selectPlan,
+  selectSelectedCheckpoint,
+  selectSelectedRouteId,
+  recommendedRoute,
+  useTripStore,
+} from '../../stores';
 import { usePlaceSearch } from './usePlaceSearch';
 import { useHistoryLayers, type HistoryLayers } from './useHistoryLayers';
 
@@ -78,6 +84,9 @@ export interface RouteSummary {
   arrival: string;
   via: string;
   risk: { level: RiskLevel; miles: Record<RiskLevel, number> };
+  recommended: boolean;
+  /** Why the route ranks where it does, from the API. */
+  reason: string;
 }
 
 function summarize(route: Route): RouteSummary {
@@ -89,7 +98,33 @@ function summarize(route: Route): RouteSummary {
     arrival: `Arrives ${formatEta(route.arrival)}`,
     via: route.via.length ? `via ${route.via.join(', ')}` : '',
     risk: { level: route.risk.worst_level, miles: route.risk.miles },
+    recommended: route.recommended,
+    reason: route.rank_reason,
   };
+}
+
+/** The recommended route at a glance, above the list. */
+export interface TripSummaryModel {
+  route: string;
+  distance: string;
+  duration: string;
+  arrival: string;
+  level: RiskLevel;
+}
+
+function tripSummary(route: Route): TripSummaryModel {
+  return {
+    route: route.label,
+    distance: formatMiles(route.distance_mi),
+    duration: formatDuration(route.duration_s),
+    arrival: `Arrives ${formatEta(route.arrival)}`,
+    level: route.risk.worst_level,
+  };
+}
+
+/** Best first. The API ranks; a copy keeps the plan's own array, which the map holds, intact. */
+function byRank(routes: readonly Route[]): Route[] {
+  return [...routes].sort((a, b) => a.rank - b.rank);
 }
 
 const NO_CHECKPOINTS: Checkpoint[] = [];
@@ -317,7 +352,11 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
     setFormOpen(true);
   }, []);
 
-  const summaries = useMemo(() => routes.map(summarize), [routes]);
+  const summaries = useMemo(() => byRank(routes).map(summarize), [routes]);
+  const summary = useMemo(() => {
+    const route = plan ? recommendedRoute(plan) : null;
+    return route ? tripSummary(route) : null;
+  }, [plan]);
   const checkpoints = useMemo(
     () => routes.find((route) => route.id === selectedRouteId)?.checkpoints ?? NO_CHECKPOINTS,
     [routes, selectedRouteId],
@@ -425,8 +464,11 @@ export function useTripPlannerViewModel({ layout = 'desktop' }: TripPlannerOptio
     },
     planning,
     error,
+    /** In the plan's id order, for the map. */
     routes,
+    /** Best first, for the list. */
     summaries,
+    summary,
     /** The selected route's card, for the collapsed sheet. */
     selectedSummary: summaries.find((route) => route.id === selectedRouteId) ?? null,
     routesHeading: summaries.length === 1 ? '1 route' : `${summaries.length} routes`,

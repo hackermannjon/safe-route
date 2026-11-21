@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Checkpoint, PlanResponse, Route } from '../../types/api';
-import { selectPlan, useTripStore } from '../useTripStore';
+import { recommendedRoute, selectPlan, useTripStore } from '../useTripStore';
 
 const checkpoint = (index: number): Checkpoint => ({
   index,
@@ -14,9 +14,12 @@ const checkpoint = (index: number): Checkpoint => ({
   weather: { wind_mph: 10, gust_mph: 15, rain_in_h: 0, snow_in_h: 0, temp_f: 40, weather_code: 0 },
 });
 
-const route = (id: string, checkpoints = 3): Route => ({
+const route = (id: string, rank: number, checkpoints = 3): Route => ({
   id,
   label: `Route ${id}`,
+  rank,
+  recommended: rank === 1,
+  rank_reason: '',
   via: [],
   distance_mi: 50,
   duration_s: 3600,
@@ -31,26 +34,32 @@ const PLAN: PlanResponse = {
   departure: '2026-11-21T14:00:00Z',
   cargo_lb: 20_000,
   spacing_mi: 25,
+  recommended_route_id: 'B',
   notices: [],
-  routes: [route('A', 2), route('B')],
+  routes: [route('A', 2), route('B', 1, 2)],
 };
 
 const store = () => useTripStore.getState();
 
 describe('useTripStore', () => {
-  it('selects the first route when a plan arrives', () => {
+  it('selects the recommended route when a plan arrives', () => {
     store().setPlan(PLAN);
     expect(selectPlan(store())).toBe(PLAN);
-    expect(store().selectedRouteId).toBe('A');
+    expect(store().selectedRouteId).toBe('B');
     expect(store().selectedCheckpoint).toBeNull();
+  });
+
+  it('falls back to the best rank when the recommended id is unknown', () => {
+    expect(recommendedRoute({ ...PLAN, recommended_route_id: 'Z' })?.id).toBe('B');
+    expect(recommendedRoute({ ...PLAN, routes: [] })).toBeNull();
   });
 
   it('only selects routes and checkpoints that exist on the plan', () => {
     store().setPlan(PLAN);
     store().selectRoute('Z');
-    expect(store().selectedRouteId).toBe('A');
+    expect(store().selectedRouteId).toBe('B');
 
-    store().selectCheckpoint(2); // Route A has checkpoints 0 and 1 only.
+    store().selectCheckpoint(2); // Route B has checkpoints 0 and 1 only.
     expect(store().selectedCheckpoint).toBeNull();
     store().selectCheckpoint(1);
     expect(store().selectedCheckpoint).toBe(1);
@@ -59,8 +68,8 @@ describe('useTripStore', () => {
   it('forgets the checkpoint when another route is selected', () => {
     store().setPlan(PLAN);
     store().selectCheckpoint(1);
-    store().selectRoute('B');
-    expect(store().selectedRouteId).toBe('B');
+    store().selectRoute('A');
+    expect(store().selectedRouteId).toBe('A');
     expect(store().selectedCheckpoint).toBeNull();
   });
 

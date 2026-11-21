@@ -11,6 +11,8 @@ const ROUTES: RouteListItem[] = [
     arrival: 'Arrives Sat 11:41 PM',
     via: 'via I-88, I-80, I-76',
     risk: { level: 'HIGH', miles: { LOW: 900, MODERATE: 80, HIGH: 36, SEVERE: 0, NO_TRAVEL: 0 } },
+    recommended: false,
+    reason: '36 more miles in High risk than Route B.',
   },
   {
     id: 'B',
@@ -20,6 +22,8 @@ const ROUTES: RouteListItem[] = [
     arrival: 'Arrives Sun 12:36 AM',
     via: '',
     risk: { level: 'LOW', miles: { LOW: 1059, MODERATE: 0, HIGH: 0, SEVERE: 0, NO_TRAVEL: 0 } },
+    recommended: true,
+    reason: 'The only route with no miles at High risk or worse.',
   },
 ];
 
@@ -60,5 +64,32 @@ describe('RouteList', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Route B/ }));
 
     expect(onSelect).toHaveBeenCalledWith('B');
+  });
+
+  it('keeps the order it is given', () => {
+    render(<RouteList routes={[ROUTES[1], ROUTES[0]]} selectedId="A" onSelect={() => {}} />);
+
+    const [first, second] = screen.getAllByRole('listitem');
+    expect(first).toHaveTextContent('Route B');
+    expect(second).toHaveTextContent('Route A');
+  });
+
+  it('marks the recommended card only, whichever card is pressed', () => {
+    render(<RouteList routes={ROUTES} selectedId="A" onSelect={() => {}} />);
+
+    expect(screen.getByRole('button', { name: /^Route B/ })).toHaveTextContent(/^Route BRecommended/);
+    expect(screen.getByRole('button', { name: /^Route A/ })).not.toHaveTextContent('Recommended');
+    expect(screen.getAllByText('Recommended')).toHaveLength(1);
+  });
+
+  it('shows why each route ranks where it does', () => {
+    render(<RouteList routes={ROUTES} selectedId="B" onSelect={() => {}} />);
+
+    expect(screen.getByRole('button', { name: /^Route A/ })).toHaveTextContent(
+      '36 more miles in High risk than Route B.',
+    );
+    expect(screen.getByRole('button', { name: /^Route B/ })).toHaveTextContent(
+      'The only route with no miles at High risk or worse.',
+    );
   });
 });

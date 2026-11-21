@@ -14,6 +14,9 @@ export interface RouteListItem {
   via: string;
   /** The worst level on the route and its miles at each level. */
   risk: { level: RiskLevel; miles: Record<RiskLevel, number> };
+  recommended: boolean;
+  /** Why the route ranks where it does, e.g. "12 more miles in High risk than Route B." */
+  reason: string;
 }
 
 export interface RouteListProps {
@@ -23,25 +26,26 @@ export interface RouteListProps {
 }
 
 /**
- * Route cards as toggle buttons; exactly one is pressed, the one drawn on top of the map. The
- * cards stay together, so every route is a short scroll away however long the selected one's
- * timeline is.
+ * Route cards as toggle buttons, in the order given; exactly one is pressed, the one drawn on top
+ * of the map. The recommended card keeps its mark whichever card is pressed. The cards stay
+ * together, so every route is a short scroll away however long the selected one's timeline is.
  */
 export function RouteList({ routes, selectedId, onSelect }: RouteListProps) {
   return (
     <ul className={styles.list} aria-label="Routes">
       {routes.map((route) => {
         const selected = route.id === selectedId;
+        const className = [styles.card, route.recommended && styles.recommended, selected && styles.selected]
+          .filter(Boolean)
+          .join(' ');
         return (
           <li key={route.id} className={styles.item}>
-            <button
-              type="button"
-              className={selected ? `${styles.card} ${styles.selected}` : styles.card}
-              aria-pressed={selected}
-              onClick={() => onSelect(route.id)}
-            >
+            <button type="button" className={className} aria-pressed={selected} onClick={() => onSelect(route.id)}>
               <span className={styles.head}>
-                <span className={styles.label}>{route.label}</span>
+                <span className={styles.name}>
+                  <span className={styles.label}>{route.label}</span>
+                  {route.recommended && <span className={styles.tag}>Recommended</span>}
+                </span>
                 <RiskBadge level={route.risk.level} peak />
               </span>
               <span className={styles.figures}>
@@ -51,6 +55,7 @@ export function RouteList({ routes, selectedId, onSelect }: RouteListProps) {
               <span className={styles.arrival}>{route.arrival}</span>
               {route.via && <span className={styles.via}>{route.via}</span>}
               <RiskBar miles={route.risk.miles} className={styles.bar} />
+              {route.reason && <span className={styles.reason}>{route.reason}</span>}
             </button>
           </li>
         );

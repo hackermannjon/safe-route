@@ -28,13 +28,16 @@ const CALM_POINT: Pick<Checkpoint, 'level' | 'factor' | 'load_rule'> = {
   load_rule: null,
 };
 
-function route(id: string, distance_mi: number, duration_s: number, via: string[]): Route {
+function route(id: string, distance_mi: number, duration_s: number, via: string[], rank = 1, reason = ''): Route {
   // Constant speed, checkpoints every 500 mi; enough to tell the routes apart.
   const miles = [0, 500, distance_mi];
   const levelMiles: Record<RiskLevel, number> = { LOW: 0, MODERATE: 0, HIGH: 0, SEVERE: 0, NO_TRAVEL: distance_mi };
   return {
     id,
     label: `Route ${id}`,
+    rank,
+    recommended: rank === 1,
+    rank_reason: reason,
     via,
     distance_mi,
     duration_s,
@@ -64,11 +67,23 @@ const PLAN: PlanResponse = {
   departure: DEPARTURE,
   cargo_lb: 42_000,
   spacing_mi: 25,
+  recommended_route_id: 'A',
   notices: [],
   routes: [
-    route('A', 1016.6, 56739, ['I-88', 'I-80', 'I-76']),
-    route('B', 1058.8, 59760, ['US-20', 'I-80', 'I-76']),
-    route('C', 1116.3, 62640, []),
+    route('A', 1016.6, 56739, ['I-88', 'I-80', 'I-76'], 1, 'Same risk as the other routes and the fastest.'),
+    route('B', 1058.8, 59760, ['US-20', 'I-80', 'I-76'], 2, 'Same risk as Route A but 50 min longer.'),
+    route('C', 1116.3, 62640, [], 3, 'Same risk as Route A but 1 h 38 min longer.'),
+  ],
+};
+
+// The fastest route, A, crosses the worst weather, so the ranking differs from the id order.
+const RANKED: PlanResponse = {
+  ...PLAN,
+  recommended_route_id: 'B',
+  routes: [
+    route('A', 1016.6, 56739, ['I-88', 'I-80', 'I-76'], 3, '120 more miles in High risk than Route B.'),
+    route('B', 1058.8, 59760, ['US-20', 'I-80', 'I-76'], 1, 'The only route with no miles at High risk or worse.'),
+    route('C', 1116.3, 62640, [], 2, '40 more miles in High risk than Route B.'),
   ],
 };
 
@@ -129,6 +144,8 @@ describe('useTripPlannerViewModel', () => {
       arrival: 'Arrives Sat 11:45 PM',
       via: 'via I-88, I-80, I-76',
       risk: { level: 'NO_TRAVEL', miles: PLAN.routes[0].risk.miles },
+      recommended: true,
+      reason: 'Same risk as the other routes and the fastest.',
     });
     expect(result.current.showLegend).toBe(true);
     expect(result.current.summaries[2].via).toBe('');
@@ -136,7 +153,69 @@ describe('useTripPlannerViewModel', () => {
     expect(result.current.planning).toBe(false);
   });
 
-  it('selects the first route by default and switches on request', async () => {
+  it('lists the routes best first and selects the recommended one', async () => {
+    vi.spyOn(api, 'plan').mockResolvedValue(RANKED);
+    const { result } = renderHook(() => useTripPlannerViewModel());
+    pickBoth(result);
+
+    await act(() => result.current.submit());
+
+    expect(result.current.summaries.map((s) => s.id)).toEqual(['B', 'C', 'A']);
+    expect(result.current.summaries.map((s) => s.recommended)).toEqual([true, false, false]);
+    expect(result.current.summaries.map((s) => s.reason)).toEqual([
+      'The only route with no miles at High risk or worse.',
+      '40 more miles in High risk than Route B.',
+      '120 more miles in High risk than Route B.',
+    ]);
+    expect(result.current.selectedRouteId).toBe('B');
+    expect(result.current.checkpoints).toBe(RANKED.routes[1].checkpoints);
+    // The map keeps the plan's own list; only the cards are reordered.
+    expect(result.current.routes).toBe(RANKED.routes);
+  });
+
+  it('summarizes the recommended route, whichever route is selected', async () => {
+    vi.spyOn(api, 'plan').mockResolvedValue(RANKED);
+    const { result } = renderHook(() => useTripPlannerViewModel());
+    pickBoth(result);
+    expect(result.current.summary).toBeNull();
+
+    await act(() => result.current.submit());
+    act(() => result.current.selectRoute('A'));
+
+    expect(result.current.summary).toEqual({
+      route: 'Route B',
+      distance: '1,059 mi',
+      duration: '16 h 36 min',
+      arrival: 'Arrives Sun 12:36 AM',
+      level: 'NO_TRAVEL',
+    });
+  });
+
+  it('falls back to the top rank when the recommended id is not in the plan', async () => {
+    vi.spyOn(api, 'plan').mockResolvedValue({ ...RANKED, recommended_route_id: 'Z' });
+    const { result } = renderHook(() => useTripPlannerViewModel());
+    pickBoth(result);
+
+    await act(() => result.current.submit());
+
+    expect(result.current.selectedRouteId).toBe('B');
+    expect(result.current.summary?.route).toBe('Route B');
+  });
+
+  it('drops the summary when a new plan fails', async () => {
+    const plan = vi.spyOn(api, 'plan').mockResolvedValue(RANKED);
+    const { result } = renderHook(() => useTripPlannerViewModel());
+    pickBoth(result);
+    await act(() => result.current.submit());
+
+    plan.mockRejectedValue(new ApiError('Weather service is unavailable.', 502));
+    await act(() => result.current.submit());
+
+    expect(result.current.summary).toBeNull();
+    expect(result.current.summaries).toEqual([]);
+  });
+
+  it('selects the recommended route by default and switches on request', async () => {
     vi.spyOn(api, 'plan').mockResolvedValue(PLAN);
     const { result } = renderHook(() => useTripPlannerViewModel());
     pickBoth(result);

@@ -4,7 +4,7 @@ import type { TimelineItem } from '../../../components/CheckpointTimeline';
 import type { RouteListItem } from '../../../components/RouteList';
 import { ResultsContent, type ResultsContentProps } from '../ResultsContent';
 
-const route = (id: string): RouteListItem => ({
+const route = (id: string, recommended = false): RouteListItem => ({
   id,
   label: `Route ${id}`,
   distance: '130 mi',
@@ -12,6 +12,8 @@ const route = (id: string): RouteListItem => ({
   arrival: 'Arrives Sun 7:10 AM',
   via: 'via I-40',
   risk: { level: 'LOW', miles: { LOW: 130, MODERATE: 0, HIGH: 0, SEVERE: 0, NO_TRAVEL: 0 } },
+  recommended,
+  reason: '',
 });
 
 const TIMELINE: TimelineItem[] = Array.from({ length: 40 }, (_, index) => ({
@@ -29,9 +31,10 @@ const props = (selectedRouteId: string): ResultsContentProps => ({
   error: null,
   onRetry: () => {},
   onDismissError: () => {},
+  summary: null,
   heading: '3 routes',
   notices: [],
-  routes: [route('A'), route('B'), route('C')],
+  routes: [route('A', true), route('B'), route('C')],
   selectedRouteId,
   onSelectRoute: () => {},
   timeline: TIMELINE,
