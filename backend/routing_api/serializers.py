@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
+from django.utils import timezone
 from rest_framework import serializers
 
 from .services.geo import haversine_mi
 
+SPACING_CHOICES = (10, 25, 50)
+# Departures slightly in the past are allowed so a driver can plan a trip already under way.
+DEPARTURE_GRACE = timedelta(hours=1)
+DEPARTURE_HORIZON = timedelta(days=7)
 MIN_TRIP_MI = 1.0
 
 
@@ -14,6 +21,25 @@ class NumberField(serializers.FloatField):
         if isinstance(data, bool):
             self.fail("invalid")
         return super().to_internal_value(data)
+
+
+def departure_field() -> serializers.DateTimeField:
+    return serializers.DateTimeField(
+        error_messages={
+            "required": "Choose a departure date and time.",
+            "null": "Choose a departure date and time.",
+            "invalid": "Departure must be an ISO 8601 date and time.",
+        }
+    )
+
+
+def check_departure(value):
+    now = timezone.now()
+    if value < now - DEPARTURE_GRACE:
+        raise serializers.ValidationError("Departure cannot be more than 1 hour in the past.")
+    if value > now + DEPARTURE_HORIZON:
+        raise serializers.ValidationError("Departure must be within the next 7 days.")
+    return value
 
 
 class PlaceSerializer(serializers.Serializer):
@@ -47,6 +73,22 @@ class PlanRequestSerializer(serializers.Serializer):
     destination = PlaceSerializer(
         error_messages={"required": "Choose a destination.", "null": "Choose a destination."}
     )
+    departure = departure_field()
+    spacing_mi = serializers.ChoiceField(
+        choices=SPACING_CHOICES,
+        error_messages={
+            "required": "Choose a checkpoint spacing.",
+            "null": "Choose a checkpoint spacing.",
+            "invalid_choice": "Checkpoint spacing must be 10, 25 or 50 miles.",
+        },
+    )
+
+    def validate_departure(self, value):
+        return check_departure(value)
+
+    def validate_spacing_mi(self, value):
+        # ChoiceField matches "25" and 25 alike; hand the service a real int.
+        return int(value)
 
     def validate(self, attrs):
         origin, destination = attrs["origin"], attrs["destination"]

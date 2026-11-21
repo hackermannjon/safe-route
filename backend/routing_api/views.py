@@ -64,5 +64,7 @@ def plan(request):
     result = planner.plan_trip(
         origin=Place(**data["origin"]),
         destination=Place(**data["destination"]),
+        departure=data["departure"],
+        spacing_mi=data["spacing_mi"],
     )
     return Response(result)

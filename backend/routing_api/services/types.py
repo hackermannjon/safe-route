@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Literal
 
 LatLon = tuple[float, float]
@@ -25,3 +26,12 @@ class RouteCandidate:
     duration_s: float
     via: list[str] = field(default_factory=list)
     source: RouteSource = "valhalla"
+
+
+@dataclass(frozen=True)
+class Checkpoint:
+    index: int
+    mile: float
+    lat: float
+    lon: float
+    eta: datetime

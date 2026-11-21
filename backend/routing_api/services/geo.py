@@ -200,6 +200,14 @@ def _locate(cum_values: Sequence[float], target: float) -> tuple[int, float]:
     return i, (target - cum_values[i]) / span if span > 0 else 0.0
 
 
+def interpolate_value(cum_values: Sequence[float], values: Sequence[float], target: float) -> float:
+    """Value of a per-point series (e.g. cumulative seconds) at a cumulative position."""
+    if len(values) == 1:
+        return values[0]
+    i, t = _locate(cum_values, target)
+    return values[i] + (values[i + 1] - values[i]) * t
+
+
 def interpolate_along(
     points: Sequence[LatLon], cum_values: Sequence[float], target: float
 ) -> LatLon:

@@ -1,4 +1,5 @@
 from dataclasses import replace
+from datetime import UTC, datetime
 
 import pytest
 
@@ -6,6 +7,7 @@ from routing_api.services import planner, routing
 from routing_api.services.geo import cumulative_miles
 from routing_api.services.types import Place, RouteCandidate
 
+DEPARTURE = datetime(2026, 11, 21, 14, tzinfo=UTC)
 ORIGIN = Place(40.0, -100.0, "Origin")
 DESTINATION = Place(40.0, -98.0, "Destination")
 
@@ -30,8 +32,8 @@ def two_routes(monkeypatch):
     return routes
 
 
-def plan():
-    return planner.plan_trip(ORIGIN, DESTINATION)
+def plan(spacing_mi=10):
+    return planner.plan_trip(ORIGIN, DESTINATION, DEPARTURE, spacing_mi)
 
 
 def with_source(route, source):
