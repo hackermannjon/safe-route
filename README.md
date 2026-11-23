@@ -7,7 +7,9 @@ rates every checkpoint from Low to No Travel and recommends the route with the l
 bad conditions. A corridor weather map with a 0–48 h slider shows how conditions move around the
 trip while a truck marker follows the selected route.
 
-**Walkthrough video:** https://www.loom.com/share/0c7a377fde9445b8ad7d4ba4e5c8b346
+**Walkthrough video:** https://www.loom.com/share/0c7a377fde9445b8ad7d4ba4e5c8b346  
+**Live app:** https://safe-route-iota-jade.vercel.app  
+**API:** https://safe-route-api-qxtd.onrender.com/api/health
 
 | Plan (desktop)                                                                       | Checkpoint detail                                                            |
 | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
@@ -424,7 +426,7 @@ repository.
 ### 3. Allow the front end to call the API
 
 In Render, set `CORS_ALLOWED_ORIGINS` to the Vercel production origin, for example
-`https://safe-route.vercel.app`. Use the exact origin with no trailing slash, and separate several
+`https://safe-route-iota-jade.vercel.app`. Use the exact origin with no trailing slash, and separate several
 origins with commas. Saving the change redeploys the service.
 
 Vercel preview deployments use other hostnames and are refused unless you add them.
