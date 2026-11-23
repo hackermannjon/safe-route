@@ -22,6 +22,8 @@ MIN_TRIP_MI = 1.0
 # A plan has at most three routes, each simplified to about 1,500 points.
 MAX_HEATMAP_ROUTES = 3
 MAX_ROUTE_POINTS = 5_000
+# A plan needs at most 350 forecast cells and a weather map 250, at 100 per lookup.
+MAX_RELAYED_LOOKUPS = 8
 
 
 class NumberField(serializers.FloatField):
@@ -72,6 +74,19 @@ def check_departure(value, grace: timedelta = DEPARTURE_GRACE):
     return value
 
 
+def relayed_weather_field() -> serializers.ListField:
+    """Forecasts the client fetched itself after a 502 listed `weather_requests`.
+
+    Only the outer shape is checked here; `weather.relayed` reads each answer.
+    """
+    return serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        max_length=MAX_RELAYED_LOOKUPS,
+        error_messages={"max_length": "Too many forecasts were sent with the request."},
+    )
+
+
 def whole_pounds(value: float) -> float:
     # Whole pounds read back as ints, so responses echo 42000 rather than 42000.0.
     return int(value) if value.is_integer() else value
@@ -118,6 +133,7 @@ class PlanRequestSerializer(serializers.Serializer):
             "invalid_choice": "Checkpoint spacing must be 10, 25 or 50 miles.",
         },
     )
+    weather = relayed_weather_field()
 
     def validate_departure(self, value):
         return check_departure(value)
@@ -183,6 +199,7 @@ class HeatmapRequestSerializer(serializers.Serializer):
     departure = departure_field()
     cargo_lb = cargo_field()
     routes = RouteLinesField()
+    weather = relayed_weather_field()
 
     def validate_departure(self, value):
         return check_departure(value, HEATMAP_DEPARTURE_GRACE)

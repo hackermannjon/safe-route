@@ -7,7 +7,7 @@ import respx
 from django.core.cache import cache
 
 from routing_api.services import weather
-from routing_api.services.errors import UpstreamError
+from routing_api.services.errors import UpstreamError, ValidationProblem, WeatherQuotaSpent
 from routing_api.services.types import WeatherSample
 
 URL = "https://api.open-meteo.com/v1/forecast"
@@ -167,9 +167,10 @@ def test_a_spent_quota_is_reported_at_once_instead_of_retried(reason, says):
     spent = httpx.Response(429, json={"error": True, "reason": reason})
     with respx.mock as mock:
         route = mock.get(URL).mock(return_value=spent)
-        with pytest.raises(UpstreamError, match=says):
+        with pytest.raises(WeatherQuotaSpent, match=says) as raised:
             weather.fetch_for_points([(41.9, -87.6, T0)])
     assert route.call_count == 1
+    assert raised.value.requests == [str(route.calls.last.request.url)]
 
 
 def test_retries_network_errors():
@@ -325,3 +326,80 @@ def test_sends_user_agent(api, settings):
     settings.HTTP_USER_AGENT = "safe-route-test/1.0"
     weather.fetch_for_points([(41.9, -87.6, T0)])
     assert api.calls.last.request.headers["user-agent"] == "safe-route-test/1.0"
+
+
+DAILY_SPENT = httpx.Response(
+    429,
+    json={"error": True, "reason": "Daily API request limit exceeded. Please try again tomorrow."},
+)
+
+
+def spent_lookup(points):
+    """The URLs a spent quota hands back for these points."""
+    with respx.mock as mock:
+        mock.get(URL).mock(return_value=DAILY_SPENT)
+        with pytest.raises(WeatherQuotaSpent) as raised:
+            weather.fetch_for_points(points)
+    return raised.value.requests
+
+
+def answer(url):
+    """What the client sends back after fetching `url` on its own connection."""
+    return {"url": url, "response": fake_forecast(httpx.Request("GET", url)).json()}
+
+
+def test_a_spent_quota_lists_only_the_lookups_still_needed():
+    points = [(30 + i / 10, -87.6, T0) for i in range(150)]
+
+    def first_batch_only(request):
+        first_lat = float(request.url.params["latitude"].split(",")[0])
+        return fake_forecast(request) if first_lat < 40 else DAILY_SPENT
+
+    with respx.mock as mock:
+        mock.get(URL).mock(side_effect=first_batch_only)
+        with pytest.raises(WeatherQuotaSpent) as raised:
+            weather.fetch_for_points(points)
+    (needed,) = raised.value.requests
+    assert httpx.URL(needed).params["latitude"].startswith("40.0,")
+
+    # The batch that did come back was cached, so it is not asked for again.
+    with weather.relayed([answer(needed)]), respx.mock:
+        samples = weather.fetch_for_points(points)
+    assert samples[0].wind_mph == pytest.approx(30.14)
+
+
+def test_relayed_answers_serve_the_request_without_a_lookup():
+    (url,) = spent_lookup([(41.9, -87.6, T0)])
+    with weather.relayed([answer(url)]), respx.mock as mock:
+        (sample,) = weather.fetch_for_points([(41.9, -87.6, T0)])
+    assert mock.calls.call_count == 0
+    assert sample.wind_mph == pytest.approx(42.04)
+
+
+def test_relayed_answers_are_not_cached_or_kept_after_the_request():
+    (url,) = spent_lookup([(41.9, -87.6, T0)])
+    with weather.relayed([answer(url)]):
+        weather.fetch_for_points([(41.9, -87.6, T0)])
+    with respx.mock as mock:
+        route = mock.get(URL).mock(side_effect=fake_forecast)
+        weather.fetch_for_points([(41.9, -87.6, T0)])
+    assert route.call_count == 1
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        lambda a: {**a, "url": a["url"].replace("api.open-meteo.com", "example.com")},
+        lambda a: {**a, "url": a["url"].replace("wind_speed_unit=mph", "wind_speed_unit=kmh")},
+        lambda a: {**a, "url": a["url"].replace("latitude=41.9", "latitude=41.93")},
+        lambda a: {**a, "response": {"hourly": {"time": ["2026-11-21T14:00"]}}},
+        lambda a: {**a, "response": [a["response"], a["response"]]},
+        lambda a: {"response": a["response"]},
+    ],
+    ids=["other host", "other units", "off the grid", "missing values", "extra location", "no url"],
+)
+def test_relayed_answers_that_do_not_match_a_lookup_are_refused(tamper):
+    (url,) = spent_lookup([(41.9, -87.6, T0)])
+    with pytest.raises(ValidationProblem) as raised, weather.relayed([tamper(answer(url))]):
+        pass
+    assert raised.value.field == "weather"

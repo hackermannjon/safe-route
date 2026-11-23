@@ -190,6 +190,13 @@ can override with `HTTP_USER_AGENT`.
   a 12 s budget.
 - **Heatmap grid.** The heatmap grid is the finest one that keeps the corridor within 250 cells.
   All 49 hours of one cell count as one location.
+- **Lookups from the browser.** Open-Meteo meters each IP address, and a hosted server often
+  shares its address with other apps. When the server's daily or hourly allowance is spent, it
+  answers `502` with the forecast URLs it still needs in `weather_requests`. The front end fetches
+  them from the visitor's own connection and repeats the request once, with the answers in
+  `weather`. The server checks that each URL is one it would have built (same host, variables,
+  units and grid cells) and still runs every risk rule itself. Relayed answers serve only that
+  request and are never cached for other visitors.
 
 When an upstream service fails, the API answers `502` with a message that explains what happened.
 
@@ -230,6 +237,8 @@ All bodies are JSON with snake_case keys. Times are ISO 8601; responses use UTC.
 Validation rules:
 
 - `spacing_mi` must be 10, 25 or 50.
+- `weather` is optional and only used after a `502` that listed `weather_requests` (see
+  [Errors](#errors)). It holds up to 8 `{"url": ..., "response": ...}` pairs, one per listed URL.
 - `cargo_lb` must be between 0 and 80,000, the US federal gross weight limit.
 - Origin and destination must be more than 1 mile apart.
 - `departure` must be between one hour ago and seven days ahead, which is the forecast range.
@@ -334,6 +343,9 @@ Every error has the same shape. `field` is present when one input is at fault.
 - `400`: invalid input.
 - `502`: an upstream service failed or ran out of time, for example "Weather forecast is
   unavailable right now. Try again shortly."
+- `502` with `weather_requests`: the server's forecast allowance is spent. The list holds the
+  Open-Meteo URLs still needed. A client may fetch them and send the same request again with the
+  answers in `weather`. `POST /api/heatmap` accepts the same field.
 
 ## Run locally
 
@@ -451,6 +463,11 @@ Vercel preview deployments use other hostnames and are refused unless you add th
 - **Public demo servers.** Valhalla, OSRM, Photon and Open-Meteo are free services with rate
   limits and no uptime guarantee. A busy minute can cause a `502`, which the app explains.
   Trying again a moment later usually works, and much of the work is then served from the cache.
+- **Weather quota on a shared host.** Open-Meteo counts requests per IP address, and the hosted
+  API shares an outbound address with other apps on the same platform, so its daily allowance can
+  run out early. When it does, the browser looks the forecast up on the visitor's own connection,
+  as described under [External services](#external-services). If that connection's allowance is
+  spent too, the plan fails with the server's message until the daily reset at 00:00 UTC.
 - **The OSRM fallback is not truck-aware.** It is used only when Valhalla fails, and the plan says
   so.
 - **Long trips get coarser weather.** On long trips the plan's weather grid and the corridor map

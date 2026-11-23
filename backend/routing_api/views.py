@@ -11,8 +11,8 @@ from .serializers import (
     PlanRequestSerializer,
     first_error,
 )
-from .services import geocoding, planner
-from .services.errors import UpstreamError, ValidationProblem
+from .services import geocoding, planner, weather
+from .services.errors import UpstreamError, ValidationProblem, WeatherQuotaSpent
 from .services.heatmap import corridor_heatmap
 from .services.types import Place
 
@@ -40,6 +40,11 @@ def api_errors(view):
             return _error("Request body must be valid JSON.", None, status.HTTP_400_BAD_REQUEST)
         except ValidationProblem as exc:
             return _error(exc.message, exc.field, status.HTTP_400_BAD_REQUEST)
+        except WeatherQuotaSpent as exc:
+            response = _error(exc.message, None, status.HTTP_502_BAD_GATEWAY)
+            # A client may fetch these itself and repeat the request with the answers.
+            response.data["weather_requests"] = exc.requests
+            return response
         except UpstreamError as exc:
             return _error(exc.message, None, status.HTTP_502_BAD_GATEWAY)
 
@@ -67,13 +72,14 @@ def plan(request):
     if not payload.is_valid():
         return _invalid(payload)
     data = payload.validated_data
-    result = planner.plan_trip(
-        origin=Place(**data["origin"]),
-        destination=Place(**data["destination"]),
-        departure=data["departure"],
-        spacing_mi=data["spacing_mi"],
-        cargo_lb=data["cargo_lb"],
-    )
+    with weather.relayed(data.get("weather")):
+        result = planner.plan_trip(
+            origin=Place(**data["origin"]),
+            destination=Place(**data["destination"]),
+            departure=data["departure"],
+            spacing_mi=data["spacing_mi"],
+            cargo_lb=data["cargo_lb"],
+        )
     return Response(result)
 
 
@@ -84,7 +90,8 @@ def heatmap(request):
     if not payload.is_valid():
         return _invalid(payload)
     data = payload.validated_data
-    result = corridor_heatmap(
-        routes=data["routes"], departure=data["departure"], cargo_lb=data["cargo_lb"]
-    )
+    with weather.relayed(data.get("weather")):
+        result = corridor_heatmap(
+            routes=data["routes"], departure=data["departure"], cargo_lb=data["cargo_lb"]
+        )
     return Response(result)

@@ -1,9 +1,10 @@
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from routing_api.services import geocoding, planner, weather
-from routing_api.services.errors import UpstreamError, ValidationProblem
+from routing_api.services.errors import UpstreamError, ValidationProblem, WeatherQuotaSpent
 from routing_api.services.types import Place, RouteCandidate, WeatherSample
 
 CHICAGO = {"lat": 41.878, "lon": -87.629, "label": "Chicago, IL"}
@@ -315,6 +316,57 @@ def test_weather_failure_is_a_clean_502(client, monkeypatch):
     assert response.json() == {
         "error": "Weather forecast is unavailable right now. Try again shortly."
     }
+
+
+FORECAST_URL = "https://api.open-meteo.com/v1/forecast?latitude=41.9&longitude=-87.6"
+
+
+def test_a_spent_weather_quota_lists_the_lookups_a_client_can_make(client, monkeypatch):
+    def spent(samples):
+        raise WeatherQuotaSpent(weather.QUOTA_SPENT["daily"], [FORECAST_URL])
+
+    monkeypatch.setattr(planner, "plan_trip", lambda **kwargs: weather.fetch_for_points([]))
+    monkeypatch.setattr(weather, "fetch_for_points", spent)
+    response = post(client, body())
+    assert response.status_code == 502
+    assert response.json() == {
+        "error": weather.QUOTA_SPENT["daily"],
+        "weather_requests": [FORECAST_URL],
+    }
+
+
+def test_relayed_forecasts_are_in_effect_while_the_plan_runs(client, monkeypatch):
+    answers = [{"url": FORECAST_URL, "response": {"hourly": {}}}]
+    seen = []
+
+    @contextmanager
+    def relayed(given):
+        seen.append(("enter", given))
+        yield
+        seen.append(("exit", given))
+
+    monkeypatch.setattr(weather, "relayed", relayed)
+
+    def plan_trip(**kwargs):
+        seen.append("plan")
+        return {"notices": [], "routes": []}
+
+    monkeypatch.setattr(planner, "plan_trip", plan_trip)
+    assert post(client, body(weather=answers)).status_code == 200
+    assert seen == [("enter", answers), "plan", ("exit", answers)]
+
+
+def test_relayed_forecasts_that_cannot_be_read_are_a_400(client, plan_calls):
+    response = post(client, body(weather=[{"url": "https://example.com/v1/forecast"}]))
+    assert response.status_code == 400
+    assert response.json() == {"error": weather.RELAY_INVALID, "field": "weather"}
+    assert plan_calls == []
+
+
+def test_relayed_forecasts_are_capped(client, plan_calls):
+    response = post(client, body(weather=[{"url": FORECAST_URL}] * 9))
+    assert response.status_code == 400
+    assert response.json()["field"] == "weather"
 
 
 def test_upstream_failure_is_502(client, monkeypatch):

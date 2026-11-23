@@ -5,6 +5,7 @@ import type {
   HeatmapResponse,
   PlanRequest,
   PlanResponse,
+  RelayedForecast,
 } from '../types/api';
 
 // Empty means same origin: in development Vite proxies /api to Django, so the app
@@ -20,12 +21,15 @@ const OFFLINE_MESSAGE = "Can't reach the Safe Route server. Check your connectio
 export class ApiError extends Error {
   readonly status: number;
   readonly field?: string;
+  /** Forecast lookups the server could not make; see `withForecastRelay`. */
+  readonly weatherRequests?: string[];
 
-  constructor(message: string, status: number, field?: string) {
+  constructor(message: string, status: number, field?: string, weatherRequests?: string[]) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.field = field;
+    this.weatherRequests = weatherRequests;
   }
 }
 
@@ -79,7 +83,9 @@ async function request<T>(path: string, { method = 'GET', body, signal }: Reques
 
   const payload = await readJson(response);
   if (!response.ok) {
-    if (isErrorBody(payload)) throw new ApiError(payload.error, response.status, payload.field);
+    if (isErrorBody(payload)) {
+      throw new ApiError(payload.error, response.status, payload.field, payload.weather_requests);
+    }
     throw new ApiError(fallbackMessage(response.status), response.status);
   }
   if (payload === null) throw new ApiError('The server sent an empty response.', response.status);
@@ -91,12 +97,56 @@ export async function geocode(query: string, signal?: AbortSignal): Promise<Geoc
   return data.results;
 }
 
+function isForecastUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.pathname.endsWith('/v1/forecast');
+  } catch {
+    return false;
+  }
+}
+
+/** Only the hourly series is read back, so the rest of each answer is not sent. */
+function hourlyOnly(location: unknown): unknown {
+  return { hourly: (location as { hourly?: unknown } | null)?.hourly };
+}
+
+async function fetchForecast(url: string, signal?: AbortSignal): Promise<RelayedForecast> {
+  if (!isForecastUrl(url)) throw new Error('Not a forecast URL.');
+  const response = await fetch(url, { signal, headers: { Accept: 'application/json' } });
+  const payload = await readJson(response);
+  if (!response.ok || payload === null) throw new Error(`Forecast lookup failed (${response.status}).`);
+  return { url, response: Array.isArray(payload) ? payload.map(hourlyOnly) : hourlyOnly(payload) };
+}
+
+/**
+ * The forecast service meters requests per IP address, and the hosted server shares its address
+ * with other apps, so its allowance can run out while each visitor still has their own. When that
+ * happens the server lists the lookups it still needs; they are made from here and sent back with
+ * the same request, once. If they fail too, the server's own message is the one shown.
+ */
+async function withForecastRelay<T, B extends object>(path: string, body: B, signal?: AbortSignal): Promise<T> {
+  try {
+    return await request<T>(path, { method: 'POST', body, signal });
+  } catch (error) {
+    if (!(error instanceof ApiError) || !error.weatherRequests?.length) throw error;
+    let weather: RelayedForecast[];
+    try {
+      weather = await Promise.all(error.weatherRequests.map((url) => fetchForecast(url, signal)));
+    } catch (relayError) {
+      if (isAbortError(relayError)) throw relayError;
+      throw error;
+    }
+    return request<T>(path, { method: 'POST', body: { ...body, weather }, signal });
+  }
+}
+
 export function planTrip(body: PlanRequest, signal?: AbortSignal): Promise<PlanResponse> {
-  return request('/api/plan', { method: 'POST', body, signal });
+  return withForecastRelay('/api/plan', body, signal);
 }
 
 export function corridorHeatmap(body: HeatmapRequest, signal?: AbortSignal): Promise<HeatmapResponse> {
-  return request('/api/heatmap', { method: 'POST', body, signal });
+  return withForecastRelay('/api/heatmap', body, signal);
 }
 
 export const api = {

@@ -4,20 +4,28 @@ The free tier is metered per location (about 600 a minute), so points are snappe
 de-duplicated before anything goes over the wire. The grid is 0.1 degree (~7 mi, finer than the
 forecast models) unless that would put more than MAX_LOCATIONS cells in one lookup; see
 `grid_step`. Results are cached per cell and hour so overlapping routes and re-plans share them.
+
+The allowance is per IP address, and a free host shares its address with many other apps, so it
+can run out before this app has sent anything. Then the lookups still needed go back to the
+client as URLs (`WeatherQuotaSpent`), and the client sends the answers with the same request
+(`relayed`). Everything from the forecast onwards, risk included, still runs here.
 """
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qsl, urlsplit
 
 import httpx
 from asgiref.sync import async_to_sync
 from django.conf import settings
 from django.core.cache import cache
 
-from .errors import UpstreamError
+from .errors import UpstreamError, ValidationProblem, WeatherQuotaSpent
 from .types import WeatherSample
 
 GRID_DEG = 0.1
@@ -52,8 +60,18 @@ HOURLY_VARS = (
     "temperature_2m",
     "weather_code",
 )
+# What every lookup asks for besides places and hours. Relayed answers must match it, so a client
+# cannot hand back, say, wind in km/h.
+FIXED_PARAMS = {
+    "hourly": ",".join(HOURLY_VARS),
+    "wind_speed_unit": "mph",
+    "precipitation_unit": "inch",
+    "temperature_unit": "fahrenheit",
+    "timezone": "UTC",
+}
 
 UNAVAILABLE = "Weather forecast is unavailable right now. Try again shortly."
+RELAY_INVALID = "The forecast sent with the request could not be read."
 QUOTA_SPENT = {
     "daily": "The free weather service's daily request limit has been reached. Try again tomorrow.",
     "hourly": "The free weather service's hourly request limit has been reached. "
@@ -63,6 +81,24 @@ QUOTA_SPENT = {
 Cell = tuple[float, float]
 Key = tuple[Cell, datetime]
 Series = dict[datetime, WeatherSample]
+Batch = tuple[list[Cell], datetime, datetime]
+
+_relayed: ContextVar[dict[Cell, Series] | None] = ContextVar("relayed_weather", default=None)
+
+
+@contextmanager
+def relayed(answers: Sequence[dict] | None) -> Iterator[None]:
+    """Serve lookups inside the block from forecasts the client fetched itself.
+
+    Each answer is `{"url": <a URL from WeatherQuotaSpent.requests>, "response": <its JSON>}`.
+    They are used for this request only and never cached: they come from the client, so another
+    user's plan must not read them.
+    """
+    token = _relayed.set(_parse_relayed(answers) if answers else None)
+    try:
+        yield
+    finally:
+        _relayed.reset(token)
 
 
 def fetch_for_points(samples: Sequence[tuple[float, float, datetime]]) -> list[WeatherSample]:
@@ -121,10 +157,15 @@ def _load(keys: set[Key]) -> dict[Key, WeatherSample]:
     by_cache_key = {_cache_key(key): key for key in keys}
     found = {by_cache_key[ck]: value for ck, value in cache.get_many(list(by_cache_key)).items()}
     missing = keys - found.keys()
+    supplied = _relayed.get() or {}
+    for cell, hour in missing:
+        if cell in supplied:
+            found[(cell, hour)] = _pick(supplied[cell], hour)
+    missing = keys - found.keys()
     if not missing:
         return found
 
-    fetched = async_to_sync(_fetch_all)(_plan_batches(missing))
+    fetched, spent = async_to_sync(_fetch_all)(_plan_batches(missing))
     cache.set_many(
         {
             _cache_key((cell, hour)): s
@@ -133,12 +174,14 @@ def _load(keys: set[Key]) -> dict[Key, WeatherSample]:
         },
         CACHE_TTL_S,
     )
+    if spent:
+        raise WeatherQuotaSpent(spent[0].message, [req for exc in spent for req in exc.requests])
     for cell, hour in missing:
         found[(cell, hour)] = _pick(fetched.get(cell, {}), hour)
     return found
 
 
-def _plan_batches(missing: Iterable[Key]) -> list[tuple[list[Cell], datetime, datetime]]:
+def _plan_batches(missing: Iterable[Key]) -> list[Batch]:
     """Group cells into batches with a shared, padded hour window.
 
     Cells are sorted by the first hour they need, so cells near the start of a trip land in the
@@ -168,7 +211,12 @@ def _pick(series: Series, hour: datetime) -> WeatherSample:
     raise UpstreamError("The weather forecast does not cover the full trip window.")
 
 
-async def _fetch_all(batches: list[tuple[list[Cell], datetime, datetime]]) -> dict[Cell, Series]:
+async def _fetch_all(batches: list[Batch]) -> tuple[dict[Cell, Series], list[WeatherQuotaSpent]]:
+    """Forecasts from every batch that came back, and the batches refused for a spent quota.
+
+    Those refusals are collected rather than raised, so the batches that did come back are still
+    cached and the client is only asked for the rest.
+    """
     gate = asyncio.Semaphore(CONCURRENCY)
     async with httpx.AsyncClient(
         timeout=TIMEOUT, headers={"User-Agent": settings.HTTP_USER_AGENT}
@@ -185,28 +233,22 @@ async def _fetch_all(batches: list[tuple[list[Cell], datetime, datetime]]) -> di
             raise UpstreamError(UNAVAILABLE) from exc
 
     merged: dict[Cell, Series] = {}
+    spent: list[WeatherQuotaSpent] = []
     for result in results:
-        if isinstance(result, BaseException):
+        if isinstance(result, WeatherQuotaSpent):
+            spent.append(result)
+        elif isinstance(result, BaseException):
             raise result
-        merged.update(result)
-    return merged
+        else:
+            merged.update(result)
+    return merged, spent
 
 
 async def _fetch_batch(
     client: httpx.AsyncClient, cells: list[Cell], start: datetime, end: datetime
 ) -> dict[Cell, Series]:
-    params = {
-        "latitude": ",".join(f"{lat:.1f}" for lat, _ in cells),
-        "longitude": ",".join(f"{lon:.1f}" for _, lon in cells),
-        "hourly": ",".join(HOURLY_VARS),
-        "wind_speed_unit": "mph",
-        "precipitation_unit": "inch",
-        "temperature_unit": "fahrenheit",
-        "timezone": "UTC",
-        "start_hour": f"{start:%Y-%m-%dT%H:%M}",
-        "end_hour": f"{end:%Y-%m-%dT%H:%M}",
-    }
-    url = f"{settings.OPEN_METEO_URL.rstrip('/')}/v1/forecast"
+    params = _params(cells, start, end)
+    url = _forecast_url()
 
     for attempt in range(MAX_ATTEMPTS):
         try:
@@ -219,13 +261,27 @@ async def _fetch_batch(
             # A spent daily or hourly quota will not come back after a short backoff.
             spent = _spent_quota(response)
             if spent:
-                raise UpstreamError(QUOTA_SPENT[spent])
+                raise WeatherQuotaSpent(QUOTA_SPENT[spent], [str(httpx.URL(url, params=params))])
         if response is not None and response.status_code != 429 and response.status_code < 500:
             # A 4xx other than rate limiting is a request we built wrong; retrying will not help.
             raise UpstreamError(UNAVAILABLE)
         if attempt + 1 < MAX_ATTEMPTS:
             await asyncio.sleep(BACKOFF_S * 2**attempt)
     raise UpstreamError(UNAVAILABLE)
+
+
+def _forecast_url() -> str:
+    return f"{settings.OPEN_METEO_URL.rstrip('/')}/v1/forecast"
+
+
+def _params(cells: list[Cell], start: datetime, end: datetime) -> dict[str, str]:
+    return {
+        "latitude": ",".join(f"{lat:.1f}" for lat, _ in cells),
+        "longitude": ",".join(f"{lon:.1f}" for _, lon in cells),
+        **FIXED_PARAMS,
+        "start_hour": f"{start:%Y-%m-%dT%H:%M}",
+        "end_hour": f"{end:%Y-%m-%dT%H:%M}",
+    }
 
 
 def _spent_quota(response: httpx.Response) -> str | None:
@@ -238,16 +294,47 @@ def _spent_quota(response: httpx.Response) -> str | None:
 
 def _parse(response: httpx.Response, cells: list[Cell]) -> dict[Cell, Series]:
     try:
-        payload = response.json()
-        # A single-location request returns an object instead of a one-element list.
-        locations = payload if isinstance(payload, list) else [payload]
-        if len(locations) != len(cells):
-            raise ValueError("location count mismatch")
-        return {
-            cell: _parse_series(loc["hourly"]) for cell, loc in zip(cells, locations, strict=True)
-        }
+        return _parse_locations(response.json(), cells)
     except (ValueError, KeyError, TypeError, IndexError) as exc:
         raise UpstreamError("The weather service returned an unexpected response.") from exc
+
+
+def _parse_relayed(answers: Sequence[dict]) -> dict[Cell, Series]:
+    expected = urlsplit(_forecast_url())
+    series: dict[Cell, Series] = {}
+    try:
+        for answer in answers:
+            url = urlsplit(answer["url"])
+            if url._replace(query="") != expected:
+                raise ValueError("not a forecast URL")
+            query = dict(parse_qsl(url.query))
+            if any(query.get(name) != value for name, value in FIXED_PARAMS.items()):
+                raise ValueError("different variables or units")
+            cells = _relayed_cells(query["latitude"], query["longitude"])
+            series.update(_parse_locations(answer["response"], cells))
+    except (ValueError, KeyError, TypeError, IndexError, AttributeError) as exc:
+        raise ValidationProblem(RELAY_INVALID, "weather") from exc
+    return series
+
+
+def _relayed_cells(lats: str, lons: str) -> list[Cell]:
+    cells = [
+        (float(lat), float(lon)) for lat, lon in zip(lats.split(","), lons.split(","), strict=True)
+    ]
+    if not 1 <= len(cells) <= BATCH_SIZE:
+        raise ValueError("batch size")
+    # Only cells this module would ask for: on the 0.1 degree grid, as `snap` spells them.
+    if any(cell != (round(cell[0], 1) + 0.0, round(cell[1], 1) + 0.0) for cell in cells):
+        raise ValueError("off the grid")
+    return cells
+
+
+def _parse_locations(payload, cells: list[Cell]) -> dict[Cell, Series]:
+    # A single-location request returns an object instead of a one-element list.
+    locations = payload if isinstance(payload, list) else [payload]
+    if len(locations) != len(cells):
+        raise ValueError("location count mismatch")
+    return {cell: _parse_series(loc["hourly"]) for cell, loc in zip(cells, locations, strict=True)}
 
 
 def _parse_series(hourly: dict) -> Series:

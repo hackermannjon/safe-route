@@ -81,4 +81,57 @@ describe('api', () => {
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body as string)).toEqual(body);
   });
+
+  describe('when the server has no forecast allowance left', () => {
+    const forecastUrl = 'https://api.open-meteo.com/v1/forecast?latitude=41.9&longitude=-87.6';
+    const spent = { error: 'The daily limit has been reached.', weather_requests: [forecastUrl] };
+    const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
+
+    it('looks the forecast up from the browser and repeats the request with it', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(json(502, spent))
+        .mockResolvedValueOnce(json(200, { latitude: 41.9, hourly: { time: [] }, hourly_units: {} }))
+        .mockResolvedValueOnce(json(200, { routes: [] }));
+      vi.stubGlobal('fetch', fetchMock);
+      await expect(api.plan({ cargo_lb: 0 } as never)).resolves.toEqual({ routes: [] });
+      expect(fetchMock.mock.calls[1][0]).toBe(forecastUrl);
+      const [url, init] = fetchMock.mock.calls[2] as [string, RequestInit];
+      expect(url).toBe(`${API_BASE_URL}/api/plan`);
+      expect(JSON.parse(init.body as string)).toEqual({
+        cargo_lb: 0,
+        weather: [{ url: forecastUrl, response: { hourly: { time: [] } } }],
+      });
+    });
+
+    it("shows the server's message when the browser cannot look it up either", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(json(502, spent))
+        .mockResolvedValueOnce(json(429, { error: true, reason: 'Daily API request limit exceeded.' }));
+      vi.stubGlobal('fetch', fetchMock);
+      await expect(api.heatmap({} as never)).rejects.toMatchObject({ status: 502, message: spent.error });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('never fetches a lookup that is not a forecast URL', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(json(502, { ...spent, weather_requests: ['http://example.com/v1/forecast'] }));
+      vi.stubGlobal('fetch', fetchMock);
+      await expect(api.plan({} as never)).rejects.toMatchObject({ message: spent.error });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('asks only once', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(json(502, spent))
+        .mockResolvedValueOnce(json(200, { hourly: { time: [] } }))
+        .mockResolvedValueOnce(json(502, spent));
+      vi.stubGlobal('fetch', fetchMock);
+      await expect(api.plan({} as never)).rejects.toMatchObject({ weatherRequests: [forecastUrl] });
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+  });
 });

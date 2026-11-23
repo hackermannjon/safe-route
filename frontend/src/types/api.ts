@@ -24,6 +24,7 @@ export interface PlanRequest {
   /** 0 to 80,000 lb. */
   cargo_lb: number;
   spacing_mi: SpacingMi;
+  weather?: RelayedForecast[];
 }
 
 /** Forecast for the hour nearest a checkpoint's ETA. */
@@ -111,6 +112,7 @@ export interface HeatmapRequest {
   cargo_lb: number;
   /** Each planned route's `geometry.coordinates`; the corridor is drawn around all of them. */
   routes: GeoJSON.Position[][];
+  weather?: RelayedForecast[];
 }
 
 /** Server metric names; each frame value is an integer to multiply by `scale`. */
@@ -132,4 +134,12 @@ export interface HeatmapResponse {
 export interface ApiError {
   error: string;
   field?: string;
+  /** Sent when the server's forecast allowance is spent: lookups the browser may make itself. */
+  weather_requests?: string[];
+}
+
+/** A forecast lookup made by the browser, sent back with a repeated request. */
+export interface RelayedForecast {
+  url: string;
+  response: unknown;
 }

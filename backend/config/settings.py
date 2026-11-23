@@ -106,6 +106,10 @@ LOGGING = {
     "loggers": {"django": {"handlers": ["console"], "level": LOG_LEVEL, "propagate": False}},
 }
 
+# A request that carries the forecasts the browser fetched itself (see weather.relayed) is about
+# 1 MB; the default 2.5 MB would leave little room for long trips.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 4 * 1024 * 1024
+
 # Outbound HTTP to the public routing, geocoding and weather services.
 HTTP_USER_AGENT = os.environ.get("HTTP_USER_AGENT", "safe-route/1.0")
 VALHALLA_URL = os.environ.get("VALHALLA_URL", "https://valhalla1.openstreetmap.de")
