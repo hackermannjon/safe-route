@@ -7,6 +7,8 @@ rates every checkpoint from Low to No Travel and recommends the route with the l
 bad conditions. A corridor weather map with a 0–48 h slider shows how conditions move around the
 trip while a truck marker follows the selected route.
 
+**Walkthrough video:** https://www.loom.com/share/0c7a377fde9445b8ad7d4ba4e5c8b346
+
 | Plan (desktop)                                                                       | Checkpoint detail                                                            |
 | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
 | ![Three routes with the recommended one selected](docs/screenshots/plan-desktop.jpg) | ![Weather and risk at one checkpoint](docs/screenshots/checkpoint-popup.jpg) |
